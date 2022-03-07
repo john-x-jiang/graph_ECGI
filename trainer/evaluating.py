@@ -23,8 +23,6 @@ def evaluate_driver(model, data_loaders, metrics, hparams, exp_dir, data_tag):
 def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eval_config, loss_type=None):
     torso_len = eval_config['torso_len']
     signal_source = eval_config['signal_source']
-    omit = eval_config['omit']
-    k_shot = eval_config.get('k_shot')
     model.eval()
     n_steps = 0
     mses = {}
@@ -45,32 +43,15 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eva
                 signal = signal.to(device)
                 label = label.to(device)
 
-                x = signal[:, :-torso_len, omit:]
-                y = signal[:, -torso_len:, omit:]
+                x = signal[:, :-torso_len, :]
+                y = signal[:, -torso_len:, :]
 
                 if signal_source == 'heart':
                     source = x
                 elif signal_source == 'torso':
                     source = y
 
-                if k_shot is None:
-                    physics_vars, statistic_vars = model(source, data_name, label)
-                else:
-                    D = data.D
-                    D_label = data.D_label
-                    D = D.to(device)
-                    D_label = D_label.to(device)
-
-                    N, M, T = signal.shape
-                    D = D.view(N, -1, M ,T)
-                    D_x = D[:, :, :-torso_len, omit:]
-                    D_y = D[:, :, -torso_len:, omit:]
-
-                    if signal_source == 'heart':
-                        D_source = D_x
-                    elif signal_source == 'torso':
-                        D_source = D_y
-                    physics_vars, statistic_vars = model(source, data_name, label, D_source, D_label)
+                physics_vars, statistic_vars = model(source, data_name)
                 
                 if loss_type == 'dmm_loss':
                     x_q, x_p = physics_vars
@@ -78,11 +59,6 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eva
                 elif loss_type == 'recon_loss' or loss_type == 'mse_loss':
                     x_, _ = physics_vars
 
-                elif loss_type == 'domain_recon_loss' or \
-                    loss_type == 'domain_recon_loss_1' or \
-                    loss_type == 'domain_recon_loss_2' or \
-                    loss_type == 'domain_recon_loss_3':
-                    x_, _ = physics_vars
                 else:
                     raise NotImplemented
 

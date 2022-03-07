@@ -59,7 +59,7 @@ class BayesianFilter(BaseModel):
                                            rnn_type=rnn_type,
                                            bd=False,
                                            reverse_input=False)
-        self.domain = DomainEncoder(latent_dim, latent_dim, obs_dim, stochastic=False)
+        self.domain = Aggregator(latent_dim, latent_dim, obs_dim, stochastic=False)
         
         self.propagation = Propagation(latent_dim, fxn_type=ode_func_type, num_layers=ode_num_layers, method=ode_method, rtol=1e-5, atol=1e-7)
         self.correction = Correction(latent_dim, rnn_type=rnn_type, dim=3, kernel_size=3, norm=False)
@@ -88,13 +88,12 @@ class BayesianFilter(BaseModel):
         N, V, C, T = x.shape
         edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
 
-        x = x.permute(3, 0, 1, 2).contiguous()
-        last_h = x[0]
-
         # Domain
         _x = self.domain_embedding(x, edge_index, edge_attr)
         z_D = self.domain(_x)
 
+        x = x.permute(3, 0, 1, 2).contiguous()
+        last_h = x[0]
         z = []
         z.append(last_h.view(1, N, V, C))
 
