@@ -120,24 +120,16 @@ def print_results(exp_dir, met_name, mets):
             f.write('{}: {} for full seq = {}\n'.format(data_name, met_name, mets[data_name].mean()))
 
 
-def save_result(exp_dir, recons, all_xs, all_labels, data_tag, pred=False):
+def save_result(exp_dir, recons, all_xs, all_labels, data_tag):
     if not os.path.exists(exp_dir + '/data'):
         os.makedirs(exp_dir + '/data')
-    
-    if not pred:
-        data_names = list(recons.keys())
-        for data_name in data_names:
-            sio.savemat(
-                os.path.join(exp_dir, 'data/{}_{}.mat'.format(data_name, data_tag)), 
-                {'recons': recons[data_name], 'inps': all_xs[data_name], 'label': all_labels[data_name]}
-            )
-    else:
-        data_names = list(recons.keys())
-        for data_name in data_names:
-            sio.savemat(
-                os.path.join(exp_dir, 'data/{}_{}_pred.mat'.format(data_name, data_tag)), 
-                {'recons': recons[data_name], 'inps': all_xs[data_name], 'label': all_labels[data_name]}
-            )
+
+    data_names = list(recons.keys())
+    for data_name in data_names:
+        sio.savemat(
+            os.path.join(exp_dir, 'data/{}_{}.mat'.format(data_name, data_tag)), 
+            {'recons': recons[data_name], 'inps': all_xs[data_name], 'label': all_labels[data_name]}
+        )
 
 
 def tensor2np(t):
