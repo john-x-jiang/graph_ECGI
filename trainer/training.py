@@ -238,7 +238,6 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
 
     with torch.no_grad():
         data_names = list(data_loaders.keys())
-        random.shuffle(data_names)
         len_epoch = len(data_loaders[data_names[0]]) * len(data_names)
         for data_name in data_names:
             data_loader = data_loaders[data_name]
