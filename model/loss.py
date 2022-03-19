@@ -71,3 +71,21 @@ def dmm_loss(x, x_q, x_p, mu1, var1, mu2, var2, kl_annealing_factor=1, r1=1, r2=
     loss = (kl_m + kl_m_D) * kl_annealing_factor + r1 * nll_m_q + r2 * nll_m_p
 
     return kl_m, nll_m_q, nll_m_p, loss
+
+
+def elbo_loss(muTheta, logvarTheta, x, mu, logvar, annealParam):
+    # TODO: batch size
+    B, V, T = x.shape[0], x.shape[1], x.shape[-1]
+    V_latent = mu.shape[1]
+    diffSq = (x - muTheta).pow(2)
+    precis = torch.exp(-logvarTheta)
+
+    BCE = 0.5 * torch.sum(logvarTheta + torch.mul(diffSq,precis))
+    BCE /= (B * V * T)
+
+    KLD = -0.5 * annealParam * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    KLD /= B * V_latent * T
+
+    loss = BCE + KLD
+
+    return KLD, BCE, loss

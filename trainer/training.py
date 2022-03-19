@@ -199,6 +199,11 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
                 x_, _ = physics_vars
                 total = loss(x_, x)
+            elif loss_func == 'elbo_loss':
+                mu_x, logvar_x = physics_vars
+                mu_z, logvar_z = statistic_vars
+
+                kl, nll, total = loss(mu_x, logvar_x, x, mu_z, logvar_z, kl_factor)
             else:
                 raise NotImplemented
 
@@ -209,6 +214,9 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
                 kl_loss += kl.item()
                 nll_p_loss += nll_p.item()
                 nll_q_loss += nll_q.item()
+            elif loss_func == 'elbo_loss':
+                kl_loss += kl.item()
+                nll_p_loss += nll.item()
             n_steps += 1
 
             optimizer.step()
@@ -275,6 +283,11 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                 elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
                     x_, _ = physics_vars
                     total = loss(x_, x)
+                elif loss_func == 'elbo_loss':
+                    mu_x, logvar_x = physics_vars
+                    mu_z, logvar_z = statistic_vars
+
+                    kl, nll, total = loss(mu_x, logvar_x, x, mu_z, logvar_z, kl_factor)
                 else:
                     raise NotImplemented
 
@@ -283,6 +296,9 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                     kl_loss += kl.item()
                     nll_p_loss += nll_p.item()
                     nll_q_loss += nll_q.item()
+                elif loss_func == 'elbo_loss':
+                    kl_loss += kl.item()
+                    nll_p_loss += nll.item()
                 n_steps += 1
 
     total_loss /= n_steps

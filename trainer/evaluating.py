@@ -58,7 +58,8 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eva
                     x_ = x_p
                 elif loss_type == 'recon_loss' or loss_type == 'mse_loss':
                     x_, _ = physics_vars
-
+                elif loss_func == 'elbo_loss':
+                    x_, _ = physics_vars
                 else:
                     raise NotImplemented
 
