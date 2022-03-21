@@ -1,0 +1,68 @@
+{
+    "exp_name": "demo",
+    "exp_id": "02",
+    
+    "model": {
+        "type": "EuclideanModel",
+        "args": {
+            "input_dim": 448
+        }
+    },
+
+    "data":{
+        "data_set": "HeartDataLoader",
+        "data_dir": "data/",
+        "data_names": ["EC"],
+        "signal_type": "egm",
+        "num_meshes": [568],
+        "seq_len": 101,
+        "graph_method": "bipartite",
+        "num_workers": 1
+    },
+
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 1e-3,
+            "amsgrad": false,
+            "betas": [0.9, 0.999]
+        }
+    },
+    "lr_scheduler": 0,
+
+    "loss": "mse_loss",
+    "metrics": [
+        "mse", "tcc", "scc"
+    ],
+
+    "batch_size": 8,
+    "ecgi": 0,
+    "device": 0,
+    "training": {
+        "epochs": 500,
+        "overfit_single_batch": false,
+
+        "save_period": 20,
+        "signal_source": "heart",
+
+        "monitor": "min val_loss",
+        "early_stop": 100,
+
+        "torso_len": 120,
+
+        "kl_args":{
+            "min_annealing_factor": 0.0,
+            "anneal_update": 1000,
+            "elbo": "sum",
+            "lambda": 1
+        },
+        "r1": 1,
+        "r2": 0
+    },
+    "evaluating": {
+        "signal_source": "heart",
+        "torso_len": 120
+    },
+    
+    "best_model": "m_best"
+}
