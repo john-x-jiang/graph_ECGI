@@ -36,11 +36,10 @@
     ],
 
     "batch_size": 8,
-    "ecgi": 0,
+    "load_torso": 0,
     "device": 0,
     "training": {
         "epochs": 500,
-        "overfit_single_batch": false,
 
         "save_period": 20,
         "signal_source": "heart",
@@ -55,9 +54,7 @@
             "anneal_update": 1000,
             "elbo": "sum",
             "lambda": 1
-        },
-        "r1": 1,
-        "r2": 0
+        }
     },
     "evaluating": {
         "signal_source": "heart",

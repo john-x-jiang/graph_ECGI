@@ -122,9 +122,9 @@ def train(hparams, checkpt, train_loaders, valid_loaders, exp_dir):
     graph_method = hparams.data['graph_method']
     data_dir = os.path.join(osp.dirname(osp.realpath('__file__')), hparams.data['data_dir'])
     batch_size = hparams.batch_size
-    ecgi = hparams.ecgi
+    load_torso = hparams.load_torso
     for data_name in hparams.data['data_names']:
-        model.setup(data_name, data_dir, batch_size, ecgi, graph_method)
+        model.setup(data_name, data_dir, batch_size, load_torso, graph_method)
 
     model.to(device)
     epoch_start = 1
@@ -169,9 +169,9 @@ def evaluate(hparams, test_loaders, exp_dir, data_tag):
     graph_method = hparams.data['graph_method']
     data_dir = os.path.join(osp.dirname(osp.realpath('__file__')), hparams.data['data_dir'])
     batch_size = hparams.batch_size
-    ecgi = hparams.ecgi
+    load_torso = hparams.load_torso
     for data_name in hparams.data['data_names']:
-        model.setup(data_name, data_dir, batch_size, ecgi, graph_method)
+        model.setup(data_name, data_dir, batch_size, load_torso, graph_method)
 
     model.to(device)
     checkpt = torch.load(exp_dir + '/' + hparams.best_model, map_location=device)

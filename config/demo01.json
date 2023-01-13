@@ -3,23 +3,26 @@
     "exp_id": "01",
     
     "model": {
-        "type": "BayesianFilter",
+        "type": "ST_GCNN",
         "args": {
-            "num_channel": [
+            "num_filters": [
                 1,
-                8,
                 16,
                 32,
                 64,
                 128,
-                256
+                256,
+                1024
             ],
-            "latent_dim": 64,
-            "obs_dim": 101,
-            "ode_func_type": "linear",
-            "ode_num_layers": 4,
-            "ode_method": "rk4",
-            "rnn_type": "gcgru"
+            "len_seq": [
+                101,
+                80,
+                60,
+                40,
+                20
+            ],
+            "latent_f_dim": 32,
+            "latent_s_dim": 20
         }
     },
 
@@ -50,11 +53,10 @@
     ],
 
     "batch_size": 8,
-    "ecgi": 0,
+    "load_torso": 0,
     "device": 0,
     "training": {
         "epochs": 500,
-        "overfit_single_batch": false,
 
         "save_period": 20,
         "signal_source": "heart",
@@ -69,9 +71,7 @@
             "anneal_update": 1000,
             "elbo": "sum",
             "lambda": 1
-        },
-        "r1": 1,
-        "r2": 0
+        }
     },
     "evaluating": {
         "signal_source": "heart",

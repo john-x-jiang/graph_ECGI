@@ -429,7 +429,7 @@ def node_degree(index, num_nodes=None, dtype=None, device=None):
     return out.scatter_add_(0, index, out.new_ones((index.size(0))))
 
 
-def load_graph(filename, ecgi=0, graph_method=None):
+def load_graph(filename, load_torso=0, graph_method=None):
     with open(filename + '.pickle', 'rb') as f:
         g = pickle.load(f)
         g1 = pickle.load(f)
@@ -442,7 +442,7 @@ def load_graph(filename, ecgi=0, graph_method=None):
         P32 = pickle.load(f)
         P43 = pickle.load(f)
 
-        if ecgi == 1:
+        if load_torso == 1:
             t_g = pickle.load(f)
             t_g1 = pickle.load(f)
             t_g2 = pickle.load(f)
@@ -458,7 +458,7 @@ def load_graph(filename, ecgi=0, graph_method=None):
             else:
                 raise NotImplementedError
 
-    if ecgi == 0:
+    if load_torso == 0:
         P01 = P10 / P10.sum(axis=0)
         P12 = P21 / P21.sum(axis=0)
         P23 = P32 / P32.sum(axis=0)
@@ -475,7 +475,7 @@ def load_graph(filename, ecgi=0, graph_method=None):
         P43 = torch.from_numpy(P43).float()
 
         return g, g1, g2, g3, g4, P10, P21, P32, P43, P01, P12, P23, P34
-    elif ecgi == 1:
+    elif load_torso == 1:
         t_P01 = t_P10 / t_P10.sum(axis=0)
         t_P12 = t_P21 / t_P21.sum(axis=0)
         t_P23 = t_P32 / t_P32.sum(axis=0)
@@ -498,7 +498,7 @@ def load_graph(filename, ecgi=0, graph_method=None):
             t_g, t_g1, t_g2, t_g3, t_P01, t_P12, t_P23, Hs, Ps
 
 
-def get_params(data_path, heart_name, batch_size, ecgi=0, graph_method=None):
+def get_params(data_path, heart_name, batch_size, load_torso=0, graph_method=None):
     # # Load physics parameters
     # physics_name = heart_name.split('_')[0]
     # physics_dir = os.path.join(data_path, 'physics/{}/'.format(physics_name))
@@ -516,12 +516,12 @@ def get_params(data_path, heart_name, batch_size, ecgi=0, graph_method=None):
 
     # Load geometrical parameters
     graph_file = os.path.join(data_path, 'signal/{}/{}_{}'.format(heart_name, heart_name, graph_method))
-    if ecgi == 0:
+    if load_torso == 0:
         g, g1, g2, g3, g4, P10, P21, P32, P43, P01, P12, P23, P34 = \
-            load_graph(graph_file, ecgi, graph_method)
+            load_graph(graph_file, load_torso, graph_method)
     else:
         g, g1, g2, g3, g4, P10, P21, P32, P43,\
-        t_g, t_g1, t_g2, t_g3, t_P01, t_P12, t_P23, Hs, Ps = load_graph(graph_file, ecgi, graph_method)
+        t_g, t_g1, t_g2, t_g3, t_P01, t_P12, t_P23, Hs, Ps = load_graph(graph_file, load_torso, graph_method)
 
     num_nodes = [g.pos.shape[0], g1.pos.shape[0], g2.pos.shape[0], g3.pos.shape[0],
                  g4.pos.shape[0]]
@@ -564,7 +564,7 @@ def get_params(data_path, heart_name, batch_size, ecgi=0, graph_method=None):
 
     bg = bg.to(device)
 
-    if ecgi == 0:
+    if load_torso == 0:
         P01 = P01.to(device)
         P12 = P12.to(device)
         P23 = P23.to(device)
@@ -583,7 +583,7 @@ def get_params(data_path, heart_name, batch_size, ecgi=0, graph_method=None):
             "P10": P10, "P21": P21, "P32": P32, "P43": P43,
             "P1n": P1n, "Pn1": Pn1, "num_nodes": num_nodes, "g": g, "bg": bg
         }
-    elif ecgi == 1:
+    elif load_torso == 1:
         t_num_nodes = [t_g.pos.shape[0], t_g1.pos.shape[0], t_g2.pos.shape[0], t_g3.pos.shape[0]]
         # print(t_g)
         # print(t_g1)

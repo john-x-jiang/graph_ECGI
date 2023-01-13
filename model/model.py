@@ -41,7 +41,7 @@ class EuclideanModel(BaseModel):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
     
-    def setup(self, heart_name, data_path, batch_size, ecgi, graph_method):
+    def setup(self, heart_name, data_path, batch_size, load_torso, graph_method):
         pass
     
     def encode(self, x):
@@ -102,8 +102,8 @@ class ST_GCNN(BaseModel):
         self.bg3 = dict()
         self.bg4 = dict()
 
-    def setup(self, heart_name, data_path, batch_size, ecgi, graph_method):
-        params = get_params(data_path, heart_name, batch_size, ecgi, graph_method)
+    def setup(self, heart_name, data_path, batch_size, load_torso, graph_method):
+        params = get_params(data_path, heart_name, batch_size, load_torso, graph_method)
         self.bg[heart_name] = params["bg"]
         self.bg1[heart_name] = params["bg1"]
         self.bg2[heart_name] = params["bg2"]
