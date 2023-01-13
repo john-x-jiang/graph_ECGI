@@ -18,8 +18,8 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     train_loaders, valid_loaders, loss, metrics, hparams, exp_dir):
     train_loss, val_loss = [], []
 
-    kl_t, nll_p_t, nll_q_t = [], [], []
-    kl_e, nll_p_e, nll_q_e = [], [], []
+    kl_t, nll_t = [], []
+    kl_e, nll_e = [], []
 
     train_config = dict(hparams.training)
     monitor_mode, monitor_metric = train_config['monitor'].split()
@@ -31,8 +31,7 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
         train_loss, val_loss = checkpt['train_loss'], checkpt['val_loss']
 
         kl_t, kl_e = checkpt['kl_t'], checkpt['kl_e']
-        nll_q_t, nll_q_e = checkpt['nll_q_t'], checkpt['nll_q_e']
-        nll_p_t, nll_p_e = checkpt['nll_p_t'], checkpt['nll_p_e']
+        nll_t, nll_e = checkpt['nll_t'], checkpt['nll_e']
 
         metric_err = checkpt.get('opt_metric_err')
         if metric_err is None:
@@ -42,11 +41,11 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     for epoch in range(epoch_start, train_config['epochs'] + 1):
         ts = time.time()
         # train epoch
-        total_loss_t, kl_loss_t, nll_p_loss_t, nll_q_loss_t = \
+        total_loss_t, kl_loss_t, nll_loss_t = \
             train_epoch(model, epoch, loss, optimizer, train_loaders, hparams)
         
         # valid epoch
-        total_loss_e, kl_loss_e, nll_p_loss_e, nll_q_loss_e = \
+        total_loss_e, kl_loss_e, nll_loss_e = \
             valid_epoch(model, epoch, loss, valid_loaders, hparams)
         te = time.time()
 
@@ -56,10 +55,8 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
 
         kl_t.append(kl_loss_t)
         kl_e.append(kl_loss_e)
-        nll_p_t.append(nll_p_loss_t)
-        nll_p_e.append(nll_p_loss_e)
-        nll_q_t.append(nll_q_loss_t)
-        nll_q_e.append(nll_q_loss_e)
+        nll_t.append(nll_loss_t)
+        nll_e.append(nll_loss_e)
 
         # Step LR
         if lr_scheduler is not None:
@@ -82,10 +79,8 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             
             'kl_t': kl_t,
             'kl_e': kl_e,
-            'nll_p_t': nll_p_t,
-            'nll_p_e': nll_p_e,
-            'nll_q_t': nll_q_t,
-            'nll_q_e': nll_q_e
+            'nll_t': nll_t,
+            'nll_e': nll_e
         }
         
         # Save the latest model
@@ -130,13 +125,9 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             kl_t,
             kl_e
         ],
-        'nll_p': [
-            nll_p_t,
-            nll_p_e
-        ],
-        'nll_q': [
-            nll_q_t,
-            nll_q_e
+        'nll': [
+            nll_t,
+            nll_e
         ]
     }
     save_losses(exp_dir, train_config['epochs'], losses)
@@ -151,7 +142,7 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
     loss_type = train_config.get('loss_type')
     loss_func = hparams.loss
     total_loss = 0
-    kl_loss, nll_p_loss, nll_q_loss = 0, 0, 0
+    kl_loss, nll_loss = 0, 0
     n_steps = 0
     batch_size = hparams.batch_size
 
@@ -176,26 +167,19 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             optimizer.zero_grad()
 
             kl_annealing_factor = determine_annealing_factor(kl_args['min_annealing_factor'],
-                                                                kl_args['anneal_update'],
-                                                                epoch - 1, len_epoch, n_steps)
+                                                             kl_args['anneal_update'],
+                                                             epoch - 1, len_epoch, n_steps)
             r_kl = kl_args['lambda']
             kl_factor = kl_annealing_factor * r_kl
-
-            r1 = train_config.get('r1')
-            r2 = train_config.get('r2')
-            if r1 is None:
-                r1 = 1
-            if r2 is None:
-                r2 = 0
             
             physics_vars, statistic_vars = model(source, data_name)
             
             if loss_func == 'dmm_loss':
-                x_q, x_p = physics_vars
-                mu_q, logvar_q, mu_p, logvar_p = statistic_vars
+                x_, _ = physics_vars
+                mu, logvar = statistic_vars
 
-                kl, nll_q, nll_p, total = \
-                    loss(x, x_q, x_p, mu_q, logvar_q, mu_p, logvar_p, kl_factor, r1, r2)
+                kl, nll, total = \
+                    loss(x, x_, mu, logvar, kl_factor)
             elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
                 x_, _ = physics_vars
                 total = loss(x_, x)
@@ -212,11 +196,10 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             total_loss += total.item()
             if loss_func == 'dmm_loss':
                 kl_loss += kl.item()
-                nll_p_loss += nll_p.item()
-                nll_q_loss += nll_q.item()
+                nll_loss += nll.item()
             elif loss_func == 'elbo_loss':
                 kl_loss += kl.item()
-                nll_p_loss += nll.item()
+                nll_loss += nll.item()
             n_steps += 1
 
             optimizer.step()
@@ -225,10 +208,9 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
 
     total_loss /= n_steps
     kl_loss /= n_steps
-    nll_p_loss /= n_steps
-    nll_q_loss /= n_steps
+    nll_loss /= n_steps
 
-    return total_loss, kl_loss, nll_p_loss, nll_q_loss
+    return total_loss, kl_loss, nll_loss
 
 
 def valid_epoch(model, epoch, loss, data_loaders, hparams):
@@ -240,7 +222,7 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
     loss_type = train_config.get('loss_type')
     loss_func = hparams.loss
     total_loss = 0
-    kl_loss, nll_p_loss, nll_q_loss = 0, 0, 0
+    kl_loss, nll_loss = 0, 0
     n_steps = 0
     batch_size = hparams.batch_size
 
@@ -264,22 +246,15 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
 
                 r_kl = kl_args['lambda']
                 kl_factor = 1 * r_kl
-
-                r1 = train_config.get('r1')
-                r2 = train_config.get('r2')
-                if r1 is None:
-                    r1 = 1
-                if r2 is None:
-                    r2 = 0
                 
                 physics_vars, statistic_vars = model(source, data_name)
                 
                 if loss_func == 'dmm_loss':
-                    x_q, x_p = physics_vars
-                    mu_q, logvar_q, mu_p, logvar_p = statistic_vars
+                    x_, _ = physics_vars
+                    mu, logvar = statistic_vars
 
-                    kl, nll_q, nll_p, total = \
-                        loss(x, x_q, x_p, mu_q, logvar_q, mu_p, logvar_p, kl_factor, r1, r2)
+                    kl, nll, total = \
+                        loss(x, x_, mu, logvar, kl_factor)
                 elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
                     x_, _ = physics_vars
                     total = loss(x_, x)
@@ -294,19 +269,17 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                 total_loss += total.item()
                 if loss_func == 'dmm_loss':
                     kl_loss += kl.item()
-                    nll_p_loss += nll_p.item()
-                    nll_q_loss += nll_q.item()
+                    nll_loss += nll.item()
                 elif loss_func == 'elbo_loss':
                     kl_loss += kl.item()
-                    nll_p_loss += nll.item()
+                    nll_loss += nll.item()
                 n_steps += 1
 
     total_loss /= n_steps
     kl_loss /= n_steps
-    nll_p_loss /= n_steps
-    nll_q_loss /= n_steps
+    nll_loss /= n_steps
 
-    return total_loss, kl_loss, nll_p_loss, nll_q_loss
+    return total_loss, kl_loss, nll_loss
 
 
 def determine_annealing_factor(min_anneal_factor,
@@ -342,7 +315,7 @@ def plot_loss(exp_dir, num_epochs, train_a, test_a, loss_type):
     ax1.set_xticks(np.arange(0 + 1, num_epochs + 1, step=10))
     ax1.set_xlabel('epochs')
     ax1.plot(train_a, color='green', ls='-', label='train accuracy')
-    ax1.plot(test_a, color='red', ls='-', label='test accuracy')
+    ax1.plot(test_a, color='red', ls='-', label='validation accuracy')
     h1, l1 = ax1.get_legend_handles_labels()
     ax1.legend(h1, l1, fontsize='14', frameon=False)
     ax1.grid(linestyle='--')

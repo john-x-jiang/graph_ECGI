@@ -239,22 +239,19 @@ class ST_Block(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, nf, latent_dim, cond=False):
+    def __init__(self, num_filters, len_seq, latent_f_dim):
         super().__init__()
-        self.nf = nf
-        self.latent_dim = latent_dim
-        self.cond = cond
+        self.nf = num_filters
+        self.ns = len_seq
+        self.latent_f_dim = latent_f_dim
 
-        if self.cond:
-            self.conv1 = Spatial_Block(self.nf[0] * 2, self.nf[1], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        else:
-            self.conv1 = Spatial_Block(self.nf[0], self.nf[1], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv2 = Spatial_Block(self.nf[1], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv3 = Spatial_Block(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
-        self.conv4 = Spatial_Block(self.nf[3], self.nf[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv1 = ST_Block(self.nf[0], self.nf[1], self.ns[0], self.ns[1], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv2 = ST_Block(self.nf[1], self.nf[2], self.ns[1], self.ns[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv3 = ST_Block(self.nf[2], self.nf[3], self.ns[2], self.ns[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv4 = ST_Block(self.nf[3], self.nf[4], self.ns[3], self.ns[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
 
         self.fce1 = nn.Conv2d(self.nf[4], self.nf[5], 1)
-        self.fce2 = nn.Conv2d(self.nf[5], latent_dim, 1)
+        self.fce2 = nn.Conv2d(self.nf[5], latent_f_dim, 1)
 
         self.bg = dict()
         self.bg1 = dict()
@@ -279,41 +276,38 @@ class Encoder(nn.Module):
         self.P23[heart_name] = params["P23"]
         self.P34[heart_name] = params["P34"]
     
-    def forward(self, x, heart_name, y=None):
+    def forward(self, x, heart_name):
         batch_size, seq_len = x.shape[0], x.shape[-1]
         # layer 1 (graph setup, conv, nonlinear, pool)
         x, edge_index, edge_attr = \
             x.view(batch_size, -1, self.nf[0], seq_len), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
-        if self.cond:
-            y = y.view(batch_size, -1, self.nf[0], seq_len)
-            x = torch.cat([x, y], dim=2)
         x = self.conv1(x, edge_index, edge_attr)
-        x = x.view(batch_size, -1, self.nf[1] * seq_len)
+        x = x.view(batch_size, -1, self.nf[1] * self.ns[1])
         x = torch.matmul(self.P01[heart_name], x)
         
         # layer 2
         x, edge_index, edge_attr = \
-            x.view(batch_size, -1, self.nf[1], seq_len), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
+            x.view(batch_size, -1, self.nf[1], self.ns[1]), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
         x = self.conv2(x, edge_index, edge_attr)
-        x = x.view(batch_size, -1, self.nf[2] * seq_len)
+        x = x.view(batch_size, -1, self.nf[2] * self.ns[2])
         x = torch.matmul(self.P12[heart_name], x)
         
         # layer 3
         x, edge_index, edge_attr = \
-            x.view(batch_size, -1, self.nf[2], seq_len), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
+            x.view(batch_size, -1, self.nf[2], self.ns[2]), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
         x = self.conv3(x, edge_index, edge_attr)
-        x = x.view(batch_size, -1, self.nf[3] * seq_len)
+        x = x.view(batch_size, -1, self.nf[3] * self.ns[3])
         x = torch.matmul(self.P23[heart_name], x)
 
         # layer 4
         x, edge_index, edge_attr = \
-            x.view(batch_size, -1, self.nf[3], seq_len), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
+            x.view(batch_size, -1, self.nf[3], self.ns[3]), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
         x = self.conv4(x, edge_index, edge_attr)
-        x = x.view(batch_size, -1, self.nf[4] * seq_len)
+        x = x.view(batch_size, -1, self.nf[4] * self.ns[4])
         x = torch.matmul(self.P34[heart_name], x)
 
         # latent
-        x = x.view(batch_size, -1, self.nf[4], seq_len)
+        x = x.view(batch_size, -1, self.nf[4], self.ns[4])
 
         x = x.permute(0, 2, 1, 3).contiguous()
         x = F.elu(self.fce1(x), inplace=True)
@@ -324,18 +318,19 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, nf, latent_dim):
+    def __init__(self, num_filters, len_seq, latent_f_dim):
         super().__init__()
-        self.nf = nf
-        self.latent_dim = latent_dim
+        self.nf = num_filters
+        self.ns = len_seq
+        self.latent_f_dim = latent_f_dim
 
-        self.fcd3 = nn.Conv2d(latent_dim, self.nf[5], 1)
+        self.fcd3 = nn.Conv2d(latent_f_dim, self.nf[5], 1)
         self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)
 
-        self.deconv4 = Spatial_Block(self.nf[4], self.nf[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv3 = Spatial_Block(self.nf[3], self.nf[2], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv2 = Spatial_Block(self.nf[2], self.nf[1], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv1 = Spatial_Block(self.nf[1], self.nf[0], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv4 = Spatial_Block(self.nf[4], self.nf[3], self.ns[4], self.ns[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv3 = Spatial_Block(self.nf[3], self.nf[2], self.ns[3], self.ns[2], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv2 = Spatial_Block(self.nf[2], self.nf[1], self.ns[2], self.ns[1], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv1 = Spatial_Block(self.nf[1], self.nf[0], self.ns[1], self.ns[0], dim=3, kernel_size=(3, 1), process='d', norm=False)
 
         self.bg = dict()
         self.bg1 = dict()
@@ -368,669 +363,33 @@ class Decoder(nn.Module):
         x = F.elu(self.fcd4(x), inplace=True)
         x = x.permute(0, 2, 1, 3).contiguous()
 
-        x = x.view(batch_size, -1, self.nf[4] * seq_len)
+        x = x.view(batch_size, -1, self.nf[4] * self.ns[4])
         x = torch.matmul(self.P43[heart_name], x)
         x, edge_index, edge_attr = \
-            x.view(batch_size, -1, self.nf[4], seq_len), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
+            x.view(batch_size, -1, self.nf[4], self.ns[4]), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
         x = self.deconv4(x, edge_index, edge_attr)
 
-        x = x.view(batch_size, -1, self.nf[3] * seq_len)
+        x = x.view(batch_size, -1, self.nf[3] * self.ns[3])
         x = torch.matmul(self.P32[heart_name], x)
         x, edge_index, edge_attr = \
-            x.view(batch_size, -1, self.nf[3], seq_len), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
+            x.view(batch_size, -1, self.nf[3], self.ns[3]), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
         x = self.deconv3(x, edge_index, edge_attr)
 
-        x = x.view(batch_size, -1, self.nf[2] * seq_len)
+        x = x.view(batch_size, -1, self.nf[2] * self.ns[2])
         x = torch.matmul(self.P21[heart_name], x)
         x, edge_index, edge_attr = \
-            x.view(batch_size, -1, self.nf[2], seq_len), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
+            x.view(batch_size, -1, self.nf[2], self.ns[2]), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
         x = self.deconv2(x, edge_index, edge_attr)
 
-        x = x.view(batch_size, -1, self.nf[1] * seq_len)
+        x = x.view(batch_size, -1, self.nf[1] * self.ns[1])
         x = torch.matmul(self.P10[heart_name], x)
         x, edge_index, edge_attr = \
-            x.view(batch_size, -1, self.nf[1], seq_len), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
+            x.view(batch_size, -1, self.nf[1], self.ns[1]), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
         x = self.deconv1(x, edge_index, edge_attr)
 
-        x = x.view(batch_size, -1, seq_len)
+        x = x.view(batch_size, -1, self.ns[0])
         
         return x
-
-
-class GCGRUCell(nn.Module):
-    def __init__(self,
-                 input_dim,
-                 hidden_dim,
-                 kernel_size,
-                 dim,
-                 is_open_spline=True,
-                 degree=1,
-                 norm=True,
-                 root_weight=True,
-                 bias=True):
-        super().__init__()
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.kernel_size = kernel_size
-
-        self.xr = Spline(in_channels=self.input_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.hr = Spline(in_channels=self.hidden_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.xz = Spline(in_channels=self.input_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.hz = Spline(in_channels=self.hidden_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.xn = Spline(in_channels=self.input_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.hn = Spline(in_channels=self.hidden_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-    def forward(self, x, hidden, edge_index, edge_attr):
-        r = torch.sigmoid(self.xr(x, edge_index, edge_attr) + self.hr(hidden, edge_index, edge_attr))
-        z = torch.sigmoid(self.xz(x, edge_index, edge_attr) + self.hz(hidden, edge_index, edge_attr))
-        n = torch.tanh(self.xn(x, edge_index, edge_attr) + r * self.hr(hidden, edge_index, edge_attr))
-        h_new = (1 - z) * n + z * hidden
-        return h_new
-
-    def init_hidden(self, batch_size, graph_size):
-        return torch.zeros(batch_size * graph_size, self.hidden_dim, device=device)
-
-
-class GCGRU(nn.Module):
-    def __init__(self,
-                 input_dim,
-                 hidden_dim,
-                 kernel_size,
-                 dim,
-                 is_open_spline=True,
-                 degree=1,
-                 norm=True,
-                 root_weight=True,
-                 bias=True,
-                 num_layers=1,
-                 return_all_layers=True):
-        super().__init__()
-        
-        self.input_dim = input_dim
-        self.kernel_size = kernel_size
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        self.return_all_layers = return_all_layers
-
-        cell_list = []
-        for i in range(self.num_layers):
-            cur_input_dim = self.input_dim if i == 0 else self.hidden_dim
-            cell_list.append(GCGRUCell(
-                input_dim=cur_input_dim,
-                hidden_dim=hidden_dim,
-                kernel_size=kernel_size,
-                dim=dim,
-                is_open_spline=is_open_spline,
-                degree=degree,
-                norm=norm,
-                root_weight=root_weight,
-                bias=bias
-            ))
-        self.cell_list = nn.ModuleList(cell_list)
-    
-    def forward(self, x, hidden_state=None, edge_index=None, edge_attr=None):
-        batch_size, graph_size, seq_len = x.shape[0], x.shape[1], x.shape[-1]
-
-        if hidden_state is not None:
-            raise NotImplemented
-        else:
-            hidden_state = self._init_hidden(batch_size=batch_size, graph_size=graph_size)
-        
-        layer_output_list = []
-        last_state_list = []
-
-        cur_layer_input = x.contiguous()
-        for i in range(self.num_layers):
-            h = hidden_state[i]
-            output_inner = []
-            for j in range(seq_len):
-                cur = cur_layer_input[:, :, :, j].view(batch_size * graph_size, -1)
-                h = h.view(batch_size * graph_size, -1)
-                h = self.cell_list[i](
-                    x=cur,
-                    hidden=h,
-                    edge_index=edge_index,
-                    edge_attr=edge_attr
-                )
-                h = h.view(1, batch_size, graph_size, -1)
-                output_inner.append(h)
-            layer_output = torch.cat(output_inner, dim=0)
-            layer_output = layer_output.permute(1, 2, 3, 0).contiguous()
-            cur_layer_input = layer_output
-            
-            layer_output_list.append(layer_output)
-            last_state_list.append(h)
-        
-        if not self.return_all_layers:
-            layer_output_list = layer_output_list[-1]
-            last_state_list = last_state_list[-1]
-        
-        return layer_output_list, last_state_list
-    
-    def _init_hidden(self, batch_size, graph_size):
-        init_states = []
-        for i in range(self.num_layers):
-            init_states.append(self.cell_list[i].init_hidden(batch_size, graph_size))
-        return init_states
-
-
-class GCLSTMCell(nn.Module):
-    def __init__(self,
-                 input_dim,
-                 hidden_dim,
-                 kernel_size,
-                 dim,
-                 is_open_spline=True,
-                 degree=1,
-                 norm=True,
-                 root_weight=True,
-                 bias=True):
-        super().__init__()
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.kernel_size = kernel_size
-
-        self.xi = Spline(in_channels=self.input_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.hi = Spline(in_channels=self.hidden_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.xf = Spline(in_channels=self.input_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.hf = Spline(in_channels=self.hidden_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.xg = Spline(in_channels=self.input_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.hg = Spline(in_channels=self.hidden_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-        
-        self.xo = Spline(in_channels=self.input_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-        self.ho = Spline(in_channels=self.hidden_dim,
-                         out_channels=self.hidden_dim,
-                         dim=dim,
-                         kernel_size=self.kernel_size,
-                         is_open_spline=is_open_spline,
-                         degree=degree,
-                         norm=norm,
-                         root_weight=root_weight,
-                         bias=bias)
-
-    def forward(self, x, h, c, edge_index, edge_attr):
-        i = torch.sigmoid(self.xi(x, edge_index, edge_attr) + self.hi(h, edge_index, edge_attr))
-        f = torch.sigmoid(self.xf(x, edge_index, edge_attr) + self.hf(h, edge_index, edge_attr))
-        g = torch.tanh(self.xg(x, edge_index, edge_attr) + self.hg(h, edge_index, edge_attr))
-        o = torch.sigmoid(self.xo(x, edge_index, edge_attr) + self.ho(h, edge_index, edge_attr))
-        c_new = f * c + i * g
-        h_new = o * torch.tanh(c_new)
-        return h_new, c_new
-
-    def init_hidden(self, batch_size, graph_size):
-        return torch.zeros(batch_size * graph_size, self.hidden_dim, device=device), \
-            torch.zeros(batch_size * graph_size, self.hidden_dim, device=device)
-
-
-class GCLSTM(nn.Module):
-    def __init__(self,
-                 input_dim,
-                 hidden_dim,
-                 kernel_size,
-                 dim,
-                 is_open_spline=True,
-                 degree=1,
-                 norm=True,
-                 root_weight=True,
-                 bias=True,
-                 num_layers=1,
-                 return_all_layers=True):
-        super().__init__()
-        
-        self.input_dim = input_dim
-        self.kernel_size = kernel_size
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        self.return_all_layers = return_all_layers
-
-        cell_list = []
-        for i in range(self.num_layers):
-            cur_input_dim = self.input_dim if i == 0 else self.hidden_dim
-            cell_list.append(GCLSTMCell(
-                input_dim=cur_input_dim,
-                hidden_dim=hidden_dim,
-                kernel_size=kernel_size,
-                dim=dim,
-                is_open_spline=is_open_spline,
-                degree=degree,
-                norm=norm,
-                root_weight=root_weight,
-                bias=bias
-            ))
-        self.cell_list = nn.ModuleList(cell_list)
-    
-    def forward(self, x, hidden_state=None, edge_index=None, edge_attr=None):
-        batch_size, graph_size, seq_len = x.shape[0], x.shape[1], x.shape[-1]
-
-        if hidden_state is not None:
-            raise NotImplemented
-        else:
-            hidden_state = self._init_hidden(batch_size=batch_size, graph_size=graph_size)
-        
-        layer_output_list = []
-        last_state_list = []
-
-        cur_layer_input = x.contiguous()
-        for i in range(self.num_layers):
-            h, c = hidden_state[i]
-            output_inner = []
-            for j in range(seq_len):
-                cur = cur_layer_input[:, :, :, j].view(batch_size * graph_size, -1)
-                h = h.view(batch_size * graph_size, -1)
-                h, c = self.cell_list[i](
-                    x=cur,
-                    h=h,
-                    c=c,
-                    edge_index=edge_index,
-                    edge_attr=edge_attr
-                )
-                h = h.view(1, batch_size, graph_size, -1)
-                output_inner.append(h)
-            # TODO: dimension
-            layer_output = torch.cat(output_inner, dim=0)
-            layer_output = layer_output.permute(1, 2, 3, 0).contiguous()
-            cur_layer_input = layer_output
-            
-            layer_output_list.append(layer_output)
-            last_state_list.append([h, c])
-        
-        if not self.return_all_layers:
-            layer_output_list = layer_output_list[-1]
-            last_state_list = last_state_list[-1]
-        
-        return layer_output_list, last_state_list
-    
-    def _init_hidden(self, batch_size, graph_size):
-        init_states = []
-        for i in range(self.num_layers):
-            init_states.append(self.cell_list[i].init_hidden(batch_size, graph_size))
-        return init_states
-
-
-class RnnEncoder(nn.Module):
-    def __init__(self, input_dim, rnn_dim, kernel_size, dim, is_open_spline=True, degree=1, norm=True,
-                 root_weight=True, bias=True, n_layer=1, rnn_type='gru', bd=True,
-                 reverse_input=False, orthogonal_init=False):
-        super().__init__()
-        self.input_dim = input_dim
-        self.rnn_dim = rnn_dim
-        self.n_layer = n_layer
-        self.rnn_type = rnn_type
-        self.bd = bd
-        self.reverse_input = reverse_input
-
-        if not isinstance(rnn_type, str):
-            raise ValueError("`rnn_type` should be type str.")
-        self.rnn_type = rnn_type
-        if rnn_type == 'gru':
-            self.rnn = nn.GRU(
-                input_size=input_dim,
-                hidden_size=rnn_dim,
-                batch_first=True,
-                bidirectional=bd,
-                num_layers=n_layer,
-            )
-        elif rnn_type == 'lstm':
-            self.rnn = nn.LSTM(
-                input_size=input_dim,
-                hidden_size=rnn_dim,
-                batch_first=True,
-                bidirectional=bd,
-                num_layers=n_layer,
-            )
-        elif rnn_type == 'gcgru':
-            self.rnn = GCGRU(
-                input_dim=input_dim,
-                hidden_dim=rnn_dim,
-                kernel_size=kernel_size,
-                dim=dim,
-                is_open_spline=is_open_spline,
-                degree=degree,
-                norm=norm,
-                root_weight=root_weight,
-                bias=bias,
-                num_layers=n_layer
-            )
-        elif rnn_type == 'gclstm':
-            self.rnn = GCLSTM(
-                input_dim=input_dim,
-                hidden_dim=rnn_dim,
-                kernel_size=kernel_size,
-                dim=dim,
-                is_open_spline=is_open_spline,
-                degree=degree,
-                norm=norm,
-                root_weight=root_weight,
-                bias=bias,
-                num_layers=n_layer
-            )
-        else:
-            raise ValueError("`rnn_type` must instead be ['gru', 'lstm'] %s"
-                             % rnn_type)
-        
-        if orthogonal_init:
-            self.init_weights()
-        
-    def init_weights(self):
-        for w in self.rnn.parameters():
-            if w.dim() > 1:
-                weight_init.orthogonal_(w)
-    
-    def forward(self, x, edge_index, edge_attr):
-        B, V, _, T = x.shape
-        seq_lengths = T * torch.ones(B).int().to(device)
-
-        if self.reverse_input:
-            x = reverse_sequence(x, seq_lengths)
-
-        x = x.contiguous()
-        if self.rnn_type == 'gru' or self.rnn_type == 'lstm':
-            x = x.view(B * V, -1, T)
-            x = x.permute(0, 2, 1).contiguous()
-            hidden, _ = self.rnn(x)
-            hidden = hidden.permute(0, 2, 1).contiguous()
-            hidden = hidden.view(B, V, -1, T)
-        else:
-            hidden, _ = self.rnn(x, edge_index=edge_index, edge_attr=edge_attr)
-            hidden = hidden[0]
-        
-        if self.reverse_input:
-            hidden = reverse_sequence(hidden, seq_lengths)
-        return hidden
-
-
-class Aggregator(nn.Module):
-    def __init__(self, rnn_dim, z_dim, time_dim, identity_init=True, stochastic=False):
-        super().__init__()
-        self.rnn_dim = rnn_dim
-        self.z_dim = z_dim
-        self.time_dim = time_dim
-        self.stochastic = stochastic
-        
-        self.lin1 = nn.Linear(time_dim, 1)
-        self.act = nn.ELU()
-
-        self.lin2 = nn.Linear(rnn_dim, z_dim)
-        self.lin_m = nn.Linear(z_dim, z_dim)
-        self.lin_v = nn.Linear(z_dim, z_dim)
-        self.act_v = nn.Tanh()
-
-        if identity_init:
-            self.lin_m.weight.data = torch.eye(z_dim)
-            self.lin_m.bias.data = torch.zeros(z_dim)
-
-    def forward(self, x):
-        B, V, C, T = x.shape
-        x = x.view(B, V * C, T)
-        x = self.act(self.lin1(x))
-        x = torch.squeeze(x)
-        x = x.view(B, V, C)
-        
-        # _mu = 0.5 * (x[:, :, :self.rnn_dim] + x[:, :, self.rnn_dim:])
-        _mu = self.lin2(x)
-
-        mu = self.lin_m(_mu)
-        
-        if self.stochastic:
-            _var = self.lin_v(_mu)
-            var = self.act_v(_var)
-            return mu, var
-        else:
-            return mu
-
-
-class Propagation(nn.Module):
-    def __init__(self,
-                 latent_dim,
-                 fxn_type='linear',
-                 num_layers=1,
-                 method='rk4',
-                 rtol=1e-5,
-                 atol=1e-7,
-                 adjoint=True,
-                 stochastic=False):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.fxn_type = fxn_type
-        self.num_layers = num_layers
-        self.method = method
-        self.rtol = rtol
-        self.atol = atol
-        self.adjoint = adjoint
-        self.stochastic = stochastic
-
-        if fxn_type == 'linear':
-            self.ode_fxn = nn.ModuleList()
-            for i in range(num_layers - 1):
-                self.ode_fxn.append(nn.Linear(latent_dim * 2, latent_dim * 2))
-            self.ode_fxn.append(nn.Linear(latent_dim * 2, latent_dim))
-        else:
-            raise NotImplemented
-        
-        self.act = nn.ELU(inplace=True)
-        self.act_last = nn.Tanh()
-
-        self.lin_c = nn.Linear(latent_dim * 2, latent_dim)
-        if stochastic:
-            self.lin_m = nn.Linear(latent_dim, latent_dim)
-            self.lin_v = nn.Linear(latent_dim, latent_dim)
-            # self.act_v = nn.Softplus()
-            self.lin_m.weight.data = torch.eye(latent_dim)
-            self.lin_m.bias.data = torch.zeros(latent_dim)
-            self.act_v = nn.Tanh()
-    
-    def init(self, trainable=True):
-        return nn.Parameter(torch.zeros(self.latent_dim), requires_grad=trainable).to(device), \
-            nn.Parameter(torch.zeros(self.latent_dim), requires_grad=trainable).to(device)
-    
-    def ode_solver(self, t, x):
-        z = x.contiguous()
-
-        z = torch.cat((z, self.z_D), dim=-1)
-        for idx, layers in enumerate(self.ode_fxn):
-            if idx != self.num_layers - 1:
-                z = self.act(layers(z))
-            else:
-                z = self.act_last(layers(z))
-        return z
-    
-    def forward(self, x, z_D, dt, steps=1):
-        if steps == 1:
-            self.integration_time = dt * torch.Tensor([0, 1]).float().to(device)
-        else:
-            self.integration_time = dt * torch.arange(steps).to(device)
-
-        N, V, C = x.shape
-        x = x.contiguous()
-
-        solver = lambda t, x: self.ode_solver(t, x)
-
-        self.z_D = z_D
-        if self.adjoint:
-            x = torchdiffeq.odeint_adjoint(solver, x, self.integration_time,
-                                           rtol=self.rtol, atol=self.atol, method=self.method, adjoint_params=())
-        else:
-            x = torchdiffeq.odeint(solver, x, self.integration_time,
-                                   rtol=self.rtol, atol=self.atol, method=self.method)
-        
-        if steps == 1:
-            x = x[-1]
-        
-        if self.stochastic:
-            mu = self.lin_m(x)
-            _var = self.lin_v(x)
-            # _var = torch.clamp(_var, min=-100, max=85)
-            var = self.act_v(_var)
-
-            mu = mu.view(steps, N, V, C)
-            var = var.view(steps, N, V, C)
-            if steps != 1:
-                mu = mu.permute(1, 2, 3, 0).contiguous()
-                var = var.permute(1, 2, 3, 0).contiguous()
-
-            return mu, var
-        else:
-            x = x.view(steps, N, V, C)
-            if steps != 1:
-                x = x.permute(1, 2, 3, 0).contiguous()
-            return x
-
-
-class Correction(nn.Module):
-    def __init__(self,
-                 latent_dim,
-                 rnn_type='gcgru',
-                 dim=3,
-                 kernel_size=3,
-                 is_open_spline=True,
-                 degree=1,
-                 norm=True,
-                 root_weight=True,
-                 bias=True,
-                 stochastic=False):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.rnn_type = rnn_type
-        self.stochastic = stochastic
-
-        if rnn_type == 'gcgru':
-            self.rnn = GCGRUCell(latent_dim, latent_dim, kernel_size, dim, is_open_spline, degree, norm, root_weight, bias)
-        else:
-            raise NotImplemented
-        
-        if stochastic:
-            self.lin_m = nn.Linear(latent_dim, latent_dim)
-            self.lin_v = nn.Linear(latent_dim, latent_dim)
-            # self.act_v = nn.Softplus()
-            self.lin_m.weight.data = torch.eye(latent_dim)
-            self.lin_m.bias.data = torch.zeros(latent_dim)
-            self.act_v = nn.Tanh()
-        
-    def forward(self, x, hidden, edge_index, edge_attr):
-        h = self.rnn(x, hidden, edge_index, edge_attr)
-        if self.stochastic:
-            mu = self.lin_m(h)
-            _var = self.lin_v(h)
-            # _var = torch.clamp(_var, min=-100, max=85)
-            var = self.act_v(_var)
-            return mu, var
-        else:
-            return h
 
 
 def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):
@@ -1056,31 +415,6 @@ def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):
 
     selected_edges = selected_edges.long()
     return selected_edges, selected_attrs
-
-
-def reverse_sequence(x, seq_lengths):
-    """
-    Brought from
-    https://github.com/pyro-ppl/pyro/blob/dev/examples/dmm/polyphonic_data_loader.py
-
-    Parameters
-    ----------
-    x: tensor (b, v, c, T_max)
-    seq_lengths: tensor (b, )
-
-    Returns
-    -------
-    x_reverse: tensor (b, v, c, T_max)
-        The input x in reversed order w.r.t. time-axis
-    """
-    x_reverse = torch.zeros_like(x)
-    for b in range(x.size(0)):
-        t = seq_lengths[b]
-        time_slice = torch.arange(t - 1, -1, -1, device=x.device)
-        reverse_seq = torch.index_select(x[b, :, :, :], -1, time_slice)
-        x_reverse[b, :, :, 0:t] = reverse_seq
-
-    return x_reverse
 
 
 def repeat(src, length):
@@ -1165,20 +499,20 @@ def load_graph(filename, ecgi=0, graph_method=None):
 
 
 def get_params(data_path, heart_name, batch_size, ecgi=0, graph_method=None):
-    # Load physics parameters
-    physics_name = heart_name.split('_')[0]
-    physics_dir = os.path.join(data_path, 'physics/{}/'.format(physics_name))
-    mat_files = scipy.io.loadmat(os.path.join(physics_dir, 'h_L.mat'), squeeze_me=True, struct_as_record=False)
-    L = mat_files['h_L']
+    # # Load physics parameters
+    # physics_name = heart_name.split('_')[0]
+    # physics_dir = os.path.join(data_path, 'physics/{}/'.format(physics_name))
+    # mat_files = scipy.io.loadmat(os.path.join(physics_dir, 'h_L.mat'), squeeze_me=True, struct_as_record=False)
+    # L = mat_files['h_L']
 
-    mat_files = scipy.io.loadmat(os.path.join(physics_dir, 'H.mat'), squeeze_me=True, struct_as_record=False)
-    H = mat_files['H']
+    # mat_files = scipy.io.loadmat(os.path.join(physics_dir, 'H.mat'), squeeze_me=True, struct_as_record=False)
+    # H = mat_files['H']
 
-    L = torch.from_numpy(L).float().to(device)
-    print('Load Laplacian: {} x {}'.format(L.shape[0], L.shape[1]))
+    # L = torch.from_numpy(L).float().to(device)
+    # print('Load Laplacian: {} x {}'.format(L.shape[0], L.shape[1]))
 
-    H = torch.from_numpy(H).float().to(device)
-    print('Load H matrix: {} x {}'.format(H.shape[0], H.shape[1]))
+    # H = torch.from_numpy(H).float().to(device)
+    # print('Load H matrix: {} x {}'.format(H.shape[0], H.shape[1]))
 
     # Load geometrical parameters
     graph_file = os.path.join(data_path, 'signal/{}/{}_{}'.format(heart_name, heart_name, graph_method))

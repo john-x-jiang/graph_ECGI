@@ -45,9 +45,9 @@ class EuclideanModel(BaseModel):
         pass
     
     def encode(self, x):
-        out, hidden=self.fc1(x)
+        out, hidden = self.fc1(x)
         h1 = self.relu(out)
-        out21,hidden21=self.fc21(h1)
+        out21,hidden21 = self.fc21(h1)
         out22, hidden22 = self.fc22(h1)
         return out21, out22
 
@@ -79,44 +79,23 @@ class EuclideanModel(BaseModel):
         return (muTheta, logvarTheta), (mu, logvar)
 
 
-class BayesianFilter(BaseModel):
+class ST_GCNN(BaseModel):
     def __init__(self,
-                 num_channel,
-                 latent_dim,
-                 obs_dim,
-                 ode_func_type,
-                 ode_num_layers,
-                 ode_method,
-                 rnn_type):
+                 num_filters,
+                 len_seq,
+                 latent_f_dim,
+                 latent_s_dim,):
         super().__init__()
-        self.nf = num_channel
-        self.latent_dim = latent_dim
-        self.obs_dim = obs_dim
-        self.ode_func_type = ode_func_type
-        self.ode_num_layers = ode_num_layers
-        self.ode_method = ode_method
-        self.rnn_type = rnn_type
+        self.num_filters = num_filters
+        self.len_seq = len_seq
+        self.latent_f_dim = latent_f_dim
+        self.latent_s_dim = latent_s_dim
 
-        # encoder
-        self.encoder = Encoder(num_channel, latent_dim)
+        self.encoder = Encoder(num_filters, len_seq, latent_f_dim)
+        self.decoder = Decoder(num_filters, len_seq, latent_f_dim)
 
-        # Domain model
-        self.domain_embedding = RnnEncoder(latent_dim, latent_dim,
-                                           dim=3,
-                                           kernel_size=3,
-                                           norm=False,
-                                           n_layer=1,
-                                           rnn_type=rnn_type,
-                                           bd=False,
-                                           reverse_input=False)
-        self.domain = Aggregator(latent_dim, latent_dim, obs_dim, stochastic=False)
-        
-        self.propagation = Propagation(latent_dim, fxn_type=ode_func_type, num_layers=ode_num_layers, method=ode_method, rtol=1e-5, atol=1e-7)
-        self.correction = Correction(latent_dim, rnn_type=rnn_type, dim=3, kernel_size=3, norm=False)
-
-        # decoder
-        self.decoder = Decoder(num_channel, latent_dim)
-
+        # TODO: add necessary nn modules for latent modeling below
+    
         self.bg = dict()
         self.bg1 = dict()
         self.bg2 = dict()
@@ -134,38 +113,20 @@ class BayesianFilter(BaseModel):
         self.encoder.setup(heart_name, params)
         self.decoder.setup(heart_name, params)
     
-    def time_modeling(self, x, heart_name):
-        N, V, C, T = x.shape
-        edge_index, edge_attr = self.bg4[heart_name].edge_index, self.bg4[heart_name].edge_attr
-
-        # Domain
-        _x = self.domain_embedding(x, edge_index, edge_attr)
-        z_D = self.domain(_x)
-
-        x = x.permute(3, 0, 1, 2).contiguous()
-        last_h = x[0]
-        z = []
-        z.append(last_h.view(1, N, V, C))
-
-        x = x.view(T, N * V, C)
-        for t in range(1, T):
-            last_h = last_h.view(N, V, -1)
-
-            # Propagation
-            last_h = self.propagation(last_h, z_D, 1, steps=1)
-            # Corrrection
-            last_h = last_h.view(N * V, -1)
-            h = self.correction(x[t], last_h, edge_index, edge_attr)
-
-            last_h = h
-            z.append(h.view(1, N, V, C))
-        
-        z = torch.cat(z, dim=0)
-        z = z.permute(1, 2, 3, 0).contiguous()
-        return z
+    def reparameterize(self, mu, logvar):
+        if self.training:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            return mu + eps * std
+        else:
+            return mu
+    
+    def latent_modeling(self, z, heart_name):
+        # TODO: need to design a graph-specific probabilistic model in latent space
+        raise NotImplemented
     
     def forward(self, x, heart_name):
-        embed = self.encoder(x, heart_name)
-        z = self.time_modeling(embed, heart_name)
+        z = self.encoder(x, heart_name)
+        mu, logvar = self.latent_modeling(z, heart_name)
         x = self.decoder(z, heart_name)
-        return (x, None), (None, None, None, None)
+        return (x, None), (mu, logvar)

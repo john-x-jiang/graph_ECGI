@@ -52,29 +52,20 @@ def recon_loss(x_, x):
     return total
 
 
-def dmm_loss(x, x_q, x_p, mu1, var1, mu2, var2, kl_annealing_factor=1, r1=1, r2=0):
+def dmm_loss(x, x_, mu, logvar, kl_annealing_factor=1):
     B, T = x.shape[0], x.shape[-1]
-    nll_raw_q = mse_loss(x_q, x[:, :, :T], 'none')
-    nll_raw_p = mse_loss(x_p, x[:, :, :T], 'none')
-    nll_m_q = nll_raw_q.sum() / B
-    nll_m_p = nll_raw_p.sum() / B
+    nll_raw = mse_loss(x_, x[:, :, :T], 'none')
+    nll_m = nll_raw.sum() / B
 
-    if mu1 is not None:
-        kl_raw = kl_div(mu1, var1, mu2, var2)
-        kl_raw, kl_raw_D = kl_raw[:, :, :, :-1], kl_raw[:, :, :, -1]
-        kl_m = kl_raw.sum() / B
-        kl_m_D = kl_raw_D.sum() / B
-    else:
-        kl_m = torch.zeros_like(x).sum() / B
-        kl_m_D = torch.zeros_like(x).sum() / B
+    kl_raw = kl_div_stn(mu, logvar)
+    kl_m = kl_raw.sum() / B
 
-    loss = (kl_m + kl_m_D) * kl_annealing_factor + r1 * nll_m_q + r2 * nll_m_p
+    loss = kl_m * kl_annealing_factor + nll_m
 
-    return kl_m, nll_m_q, nll_m_p, loss
+    return kl_m, nll_m, loss
 
 
 def elbo_loss(muTheta, logvarTheta, x, mu, logvar, annealParam):
-    # TODO: batch size
     B, V, T = x.shape[0], x.shape[1], x.shape[-1]
     V_latent = mu.shape[1]
     diffSq = (x - muTheta).pow(2)

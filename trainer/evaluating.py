@@ -54,8 +54,7 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eva
                 physics_vars, statistic_vars = model(source, data_name)
                 
                 if loss_type == 'dmm_loss':
-                    x_q, x_p = physics_vars
-                    x_ = x_p
+                    x_, _ = physics_vars
                 elif loss_type == 'recon_loss' or loss_type == 'mse_loss':
                     x_, _ = physics_vars
                 elif loss_func == 'elbo_loss':
@@ -75,6 +74,7 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eva
                 for met in metrics:
                     if met.__name__ == 'mse':
                         mse = met(x_, x)
+                        mse = mse.mean((1, 2))
                         mse = tensor2np(mse)
                         if idx == 0:
                             mses[data_name] = mse
@@ -115,10 +115,21 @@ def print_results(exp_dir, met_name, mets):
         os.makedirs(exp_dir + '/data')
     
     data_names = list(mets.keys())
+    met = []
     for data_name in data_names:
-        print('{}: {} for full seq = {:05.5f}'.format(data_name, met_name, mets[data_name].mean()))
+        if mets[data_name] is None:
+            continue
+        met.append(mets[data_name])
+        print('{}: {} for full seq avg = {:05.5f}, std = {:05.5f}'.format(data_name, met_name, mets[data_name].mean(), mets[data_name].std()))
         with open(os.path.join(exp_dir, 'data/metric.txt'), 'a+') as f:
             f.write('{}: {} for full seq = {}\n'.format(data_name, met_name, mets[data_name].mean()))
+    
+    if len(met) == 0:
+        return
+    met = np.hstack(met)
+    print('total: {} for full seq avg = {:05.5f}, std = {:05.5f}'.format(met_name, met.mean(), met.std()))
+    with open(os.path.join(exp_dir, 'data/metric.txt'), 'a+') as f:
+        f.write('total: {} for full seq avg = {}, std = {}\n'.format(met_name, met.mean(), met.std()))
 
 
 def save_result(exp_dir, recons, all_xs, all_labels, data_tag):
@@ -129,7 +140,7 @@ def save_result(exp_dir, recons, all_xs, all_labels, data_tag):
     for data_name in data_names:
         sio.savemat(
             os.path.join(exp_dir, 'data/{}_{}.mat'.format(data_name, data_tag)), 
-            {'recons': recons[data_name], 'inps': all_xs[data_name], 'label': all_labels[data_name]}
+            {'recons': recons[data_name], 'inputs': all_xs[data_name], 'label': all_labels[data_name]}
         )
 
 
