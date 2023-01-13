@@ -4,6 +4,6 @@ matplotlib
 scikit-learn
 scipy
 tqdm
-torch==1.9.1
+torch
 torchdiffeq
 ipdb
