@@ -392,6 +392,286 @@ class Decoder(nn.Module):
         return x
 
 
+class DomainEncoder(nn.Module):
+    def __init__(self, n_obs, nf, latent_dim):
+        super().__init__()
+        self.n_obs = n_obs
+        self.nf = nf
+        self.latent_dim = latent_dim
+
+        self.conv1 = ST_Block(nf[0], nf[1], n_obs, n_obs // 2, dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv2 = ST_Block(nf[1], nf[2], n_obs // 2, n_obs // 4, dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv3 = ST_Block(nf[2], nf[3], n_obs // 4, n_obs // 8, dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv4 = ST_Block(nf[3], nf[4], n_obs // 8, 1, dim=3, kernel_size=(3, 1), process='e', norm=False)
+
+        self.fce1 = nn.Linear(nf[4], nf[5])
+        self.fce2 = nn.Linear(nf[5], latent_dim)
+
+        self.bg = dict()
+        self.bg1 = dict()
+        self.bg2 = dict()
+        self.bg3 = dict()
+        self.bg4 = dict()
+
+        self.P01 = dict()
+        self.P12 = dict()
+        self.P23 = dict()
+        self.P34 = dict()
+    
+    def setup(self, heart_name, params):
+        self.bg[heart_name] = params["bg"]
+        self.bg1[heart_name] = params["bg1"]
+        self.bg2[heart_name] = params["bg2"]
+        self.bg3[heart_name] = params["bg3"]
+        self.bg4[heart_name] = params["bg4"]
+
+        self.P01[heart_name] = params["P01"]
+        self.P12[heart_name] = params["P12"]
+        self.P23[heart_name] = params["P23"]
+        self.P34[heart_name] = params["P34"]
+    
+    def forward(self, x, heart_name):
+        batch_size, seq_len = x.shape[0], x.shape[-1]
+        # layer 1 (graph setup, conv, nonlinear, pool)
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[0], seq_len), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
+        x = self.conv1(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[1] * (seq_len // 2))
+        x = torch.matmul(self.P01[heart_name], x)
+        
+        # layer 2
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[1], (seq_len // 2)), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
+        x = self.conv2(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[2] * (seq_len // 4))
+        x = torch.matmul(self.P12[heart_name], x)
+        
+        # layer 3
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[2], (seq_len // 4)), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
+        x = self.conv3(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[3] * (seq_len // 8))
+        x = torch.matmul(self.P23[heart_name], x)
+
+        # layer 4
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[3], (seq_len // 8)), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
+        x = self.conv4(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[4])
+        x = torch.matmul(self.P34[heart_name], x)
+
+        # latent
+        x = x.view(batch_size, -1, self.nf[4])
+        x = F.elu(self.fce1(x), inplace=True)
+        x = torch.tanh(self.fce2(x))
+
+        return x
+
+
+class InitialEncoder(nn.Module):
+    def __init__(self, n_init, nf, latent_dim):
+        super().__init__()
+        self.n_init = n_init
+        self.nf = nf
+        self.latent_dim = latent_dim
+
+        self.conv1 = Spatial_Block(n_init, nf[1], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv2 = Spatial_Block(nf[1], nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv3 = Spatial_Block(nf[2], nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv4 = Spatial_Block(nf[3], nf[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
+
+        self.fce1 = nn.Linear(nf[4], nf[5])
+        self.fce2 = nn.Linear(nf[5], latent_dim)
+
+        self.bg = dict()
+        self.bg1 = dict()
+        self.bg2 = dict()
+        self.bg3 = dict()
+        self.bg4 = dict()
+
+        self.P01 = dict()
+        self.P12 = dict()
+        self.P23 = dict()
+        self.P34 = dict()
+    
+    def setup(self, heart_name, params):
+        self.bg[heart_name] = params["bg"]
+        self.bg1[heart_name] = params["bg1"]
+        self.bg2[heart_name] = params["bg2"]
+        self.bg3[heart_name] = params["bg3"]
+        self.bg4[heart_name] = params["bg4"]
+
+        self.P01[heart_name] = params["P01"]
+        self.P12[heart_name] = params["P12"]
+        self.P23[heart_name] = params["P23"]
+        self.P34[heart_name] = params["P34"]
+    
+    def forward(self, x, heart_name):
+        batch_size, seq_len = x.shape[0], x.shape[-1]
+        # layer 1 (graph setup, conv, nonlinear, pool)
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.n_init, 1), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
+        x = self.conv1(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[1])
+        x = torch.matmul(self.P01[heart_name], x)
+        
+        # layer 2
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[1], 1), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
+        x = self.conv2(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[2])
+        x = torch.matmul(self.P12[heart_name], x)
+        
+        # layer 3
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[2], 1), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
+        x = self.conv3(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[3])
+        x = torch.matmul(self.P23[heart_name], x)
+
+        # layer 4
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[3], 1), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
+        x = self.conv4(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[4])
+        x = torch.matmul(self.P34[heart_name], x)
+
+        # latent
+        x = x.view(batch_size, -1, self.nf[4])
+        x = F.elu(self.fce1(x), inplace=True)
+        x = torch.tanh(self.fce2(x))
+
+        return x
+
+
+class SpatialDecoder(nn.Module):
+    def __init__(self, nf, latent_dim):
+        super().__init__()
+        self.nf = nf
+        self.latent_dim = latent_dim
+
+        self.fcd3 = nn.Conv2d(latent_dim, self.nf[5], 1)
+        self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)
+
+        self.deconv4 = Spatial_Block(self.nf[4], self.nf[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv3 = Spatial_Block(self.nf[3], self.nf[2], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv2 = Spatial_Block(self.nf[2], self.nf[1], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv1 = Spatial_Block(self.nf[1], self.nf[0], dim=3, kernel_size=(3, 1), process='d', norm=False)
+
+        self.bg = dict()
+        self.bg1 = dict()
+        self.bg2 = dict()
+        self.bg3 = dict()
+        self.bg4 = dict()
+
+        self.P10 = dict()
+        self.P21 = dict()
+        self.P32 = dict()
+        self.P43 = dict()
+    
+    def setup(self, heart_name, params):
+        self.bg[heart_name] = params["bg"]
+        self.bg1[heart_name] = params["bg1"]
+        self.bg2[heart_name] = params["bg2"]
+        self.bg3[heart_name] = params["bg3"]
+        self.bg4[heart_name] = params["bg4"]
+        
+        self.P10[heart_name] = params["P10"]
+        self.P21[heart_name] = params["P21"]
+        self.P32[heart_name] = params["P32"]
+        self.P43[heart_name] = params["P43"]
+    
+    def forward(self, x, heart_name):
+        batch_size, seq_len = x.shape[0], x.shape[-1]
+        x = x.permute(0, 2, 1, 3).contiguous()
+
+        x = F.elu(self.fcd3(x), inplace=True)
+        x = F.elu(self.fcd4(x), inplace=True)
+        x = x.permute(0, 2, 1, 3).contiguous()
+
+        x = x.view(batch_size, -1, self.nf[4] * seq_len)
+        x = torch.matmul(self.P43[heart_name], x)
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[4], seq_len), self.bg3[heart_name].edge_index, self.bg3[heart_name].edge_attr
+        x = self.deconv4(x, edge_index, edge_attr)
+
+        x = x.view(batch_size, -1, self.nf[3] * seq_len)
+        x = torch.matmul(self.P32[heart_name], x)
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[3], seq_len), self.bg2[heart_name].edge_index, self.bg2[heart_name].edge_attr
+        x = self.deconv3(x, edge_index, edge_attr)
+
+        x = x.view(batch_size, -1, self.nf[2] * seq_len)
+        x = torch.matmul(self.P21[heart_name], x)
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[2], seq_len), self.bg1[heart_name].edge_index, self.bg1[heart_name].edge_attr
+        x = self.deconv2(x, edge_index, edge_attr)
+
+        x = x.view(batch_size, -1, self.nf[1] * seq_len)
+        x = torch.matmul(self.P10[heart_name], x)
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[1], seq_len), self.bg[heart_name].edge_index, self.bg[heart_name].edge_attr
+        x = self.deconv1(x, edge_index, edge_attr)
+
+        x = x.view(batch_size, -1, seq_len)
+        
+        return x
+
+
+class Transition(nn.Module):
+    def __init__(self, z_dim, transition_dim, identity_init=True, stochastic=True):
+        super().__init__()
+        self.z_dim = z_dim
+        self.transition_dim = transition_dim
+        self.identity_init = identity_init
+        self.stochastic = stochastic
+
+        # compute the gain (gate) of non-linearity
+        self.lin1 = nn.Linear(z_dim*2, transition_dim*2)
+        self.lin2 = nn.Linear(transition_dim*2, z_dim)
+        # compute the proposed mean
+        self.lin3 = nn.Linear(z_dim*2, transition_dim*2)
+        self.lin4 = nn.Linear(transition_dim*2, z_dim)
+        # compute the linearity part
+        self.lin_m = nn.Linear(z_dim*2, z_dim)
+        self.lin_n = nn.Linear(z_dim, z_dim)
+
+        if identity_init:
+            self.lin_n.weight.data = torch.eye(z_dim)
+            self.lin_n.bias.data = torch.zeros(z_dim)
+
+        # compute the logvar
+        self.lin_v = nn.Linear(z_dim, z_dim)
+        # logvar activation
+        self.act_var = nn.Tanh()
+
+        self.act_weight = nn.Sigmoid()
+        self.act = nn.ELU()
+    
+    def init_z_0(self, trainable=True):
+        return nn.Parameter(torch.zeros(self.z_dim), requires_grad=trainable), \
+            nn.Parameter(torch.zeros(self.z_dim), requires_grad=trainable)
+    
+    def forward(self, z_t_1, z_domain):
+        z_combine = torch.cat((z_t_1, z_domain), dim=2)
+        _g_t = self.act(self.lin1(z_combine))
+        g_t = self.act_weight(self.lin2(_g_t))
+        _h_t = self.act(self.lin3(z_combine))
+        h_t = self.act(self.lin4(_h_t))
+        _mu = self.lin_m(z_combine)
+        mu = (1 - g_t) * self.lin_n(_mu) + g_t * h_t
+        mu = mu + _mu
+
+        if self.stochastic:
+            _var = self.lin_v(h_t)
+            # if self.clip:
+            #     _var = torch.clamp(_var, min=-100, max=85)
+            var = self.act_var(_var)
+            return mu, var
+        else:
+            return mu
+
+
 def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):
     # edge_attr = edge_attr.repeat(T, 1)
     num_edges = int(edge_index.shape[1] / batch_size)

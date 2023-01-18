@@ -11,7 +11,11 @@
    ```bash
    python main.py --config demo01 --stage 2
    ```
-7. To make graphs based on the pre-defined geometry, run the following command:
+7. To perform meta-evaluation on the model, run the following command:
+   ```bash
+   python main.py --config demo03 --stage 3
+   ```
+8. To make graphs based on the pre-defined geometry, run the following command:
     ```bash
    python main.py --config demo01 --stage 0
    ```

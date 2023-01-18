@@ -65,6 +65,27 @@ def dmm_loss(x, x_, mu, logvar, kl_annealing_factor=1):
     return kl_m, nll_m, loss
 
 
+def meta_loss(x_, x, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_annealing_factor=1, loss_type='mse', r1=1, r2=0, r3=1, l=1):
+    B, T = x.shape[0], x.shape[-1]
+    nll_raw = nll_loss(x_, x, 'none', loss_type)
+    nll_0 = nll_raw[:, :, 0].sum() / B
+    nll_r = nll_raw[:, :, 1:].sum() / B / (T - 1)
+    nll_m = T * (nll_0 * l + nll_r)
+
+    kl_raw_c_t = kl_div(mu_c, logvar_c, mu_t, logvar_t)
+    kl_m_c_t = kl_raw_c_t.sum() / B
+
+    kl_raw_c = kl_div_stn(mu_c, logvar_c)
+    kl_m_c = kl_raw_c.sum() / B
+
+    kl_raw_0 = kl_div_stn(mu_0, logvar_0)
+    kl_m_0 = kl_raw_0.sum() / B
+
+    total = kl_annealing_factor * (r1 * kl_m_c_t + r2 * kl_m_c + r3 * kl_m_0) + nll_m
+
+    return kl_m_c_t, nll_m, kl_m_0, total
+
+
 def elbo_loss(muTheta, logvarTheta, x, mu, logvar, annealParam):
     B, V, T = x.shape[0], x.shape[1], x.shape[-1]
     V_latent = mu.shape[1]

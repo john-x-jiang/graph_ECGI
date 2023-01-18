@@ -13,91 +13,104 @@ from utils import util
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def evaluate_driver(model, data_loaders, metrics, hparams, exp_dir, data_tag):
+def evaluate_driver(model, data_loaders, metrics, hparams, exp_dir, data_tags):
     eval_config = hparams.evaluating
-    loss_type = hparams.loss
+    loss_func = hparams.loss
 
-    evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eval_config, loss_type=loss_type)
+    evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tags, eval_config, loss_func=loss_func)
 
 
-def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eval_config, loss_type=None):
+def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tags, eval_config, loss_func=None):
     torso_len = eval_config['torso_len']
     signal_source = eval_config['signal_source']
+    omit = eval_config['omit']
+    window = eval_config.get('window')
+    k_shot = eval_config.get('k_shot')
+    changable = eval_config.get('changable')
+    data_scaler = eval_config.get('data_scaler')
     model.eval()
-    n_steps = 0
-    mses = {}
-    tccs = {}
-    sccs = {}
-
-    q_recons = {}
-    all_xs = {}
-    all_labels = {}
+    n_data = 0
+    data_idx = 0
+    total_time = 0
+    mses = None
+    tccs = None
+    sccs = None
 
     with torch.no_grad():
         data_names = list(data_loaders.keys())
         for data_name in data_names:
-            data_loader = data_loaders[data_name]
-            len_epoch = len(data_loader)
-            for idx, data in enumerate(data_loader):
-                signal, label = data.x, data.y
-                signal = signal.to(device)
-                label = label.to(device)
+            data_loader_tag = data_loaders[data_name]
+            eval_tags = list(data_loader_tag.keys())
 
-                x = signal[:, :-torso_len, :]
-                y = signal[:, -torso_len:, :]
+            for tag_idx, eval_tag in enumerate(eval_tags):
+                recons, grnths, labels = None, None, None
 
-                if signal_source == 'heart':
-                    source = x
-                elif signal_source == 'torso':
-                    source = y
-
-                physics_vars, statistic_vars = model(source, data_name)
+                data_loader = data_loader_tag[eval_tag]
+                len_epoch = len(data_loader)
+                n_data += len_epoch * data_loader.batch_size
                 
-                if loss_type == 'dmm_loss':
-                    x_, _ = physics_vars
-                elif loss_type == 'recon_loss' or loss_type == 'mse_loss':
-                    x_, _ = physics_vars
-                elif loss_func == 'elbo_loss':
-                    x_, _ = physics_vars
-                else:
-                    raise NotImplemented
+                for idx, data in enumerate(data_loader):
+                    signal, label = data.x, data.y
+                    signal = signal.to(device)
+                    label = label.to(device)
+                    
+                    if window is not None:
+                        signal = signal[:, :, :window]
+                    
+                    if data_scaler is not None:
+                        signal = data_scaler * signal
 
-                if idx == 0:
-                    q_recons[data_name] = tensor2np(x_)
-                    all_xs[data_name] = tensor2np(x)
-                    all_labels[data_name] = tensor2np(label)
-                else:
-                    q_recons[data_name] = np.concatenate((q_recons[data_name], tensor2np(x_)), axis=0)
-                    all_xs[data_name] = np.concatenate((all_xs[data_name], tensor2np(x)), axis=0)
-                    all_labels[data_name] = np.concatenate((all_labels[data_name], tensor2np(label)), axis=0)
+                    x_heart = signal[:, :-torso_len, omit:]
+                    x_torso = signal[:, -torso_len:, omit:]
 
-                for met in metrics:
-                    if met.__name__ == 'mse':
-                        mse = met(x_, x)
-                        mse = mse.mean((1, 2))
-                        mse = tensor2np(mse)
-                        if idx == 0:
-                            mses[data_name] = mse
-                        else:
-                            mses[data_name] = np.concatenate((mses[data_name], mse), axis=0)
-                    if met.__name__ == 'tcc':
-                        if type(x) == torch.Tensor or type(x_) == torch.Tensor:
-                            x = tensor2np(x)
-                            x_ = tensor2np(x_)
-                        tcc = met(x_, x)
-                        if idx == 0:
-                            tccs[data_name] = tcc
-                        else:
-                            tccs[data_name] = np.concatenate((tccs[data_name], tcc), axis=0)
-                    if met.__name__ == 'scc':
-                        if type(x) == torch.Tensor or type(x_) == torch.Tensor:
-                            x = tensor2np(x)
-                            x_ = tensor2np(x_)
-                        scc = met(x_, x)
-                        if idx == 0:
-                            sccs[data_name] = scc
-                        else:
-                            sccs[data_name] = np.concatenate((sccs[data_name], scc), axis=0)
+                    if signal_source == 'heart':
+                        source = x_heart
+                    elif signal_source == 'torso':
+                        source = x_torso
+
+                    physics_vars, statistic_vars = model(source, label, data_name)
+                    x_ = physics_vars[0]
+
+                    if idx == 0:
+                        recons = tensor2np(x_)
+                        grnths = tensor2np(source)
+                        labels = tensor2np(label)
+                    else:
+                        recons = np.concatenate((recons, tensor2np(x_)), axis=0)
+                        grnths = np.concatenate((grnths, tensor2np(source)), axis=0)
+                        labels = np.concatenate((labels, tensor2np(label)), axis=0)
+
+                    for met in metrics:
+                        if met.__name__ == 'mse':
+                            mse = met(x_, source)
+                            mse = mse.mean([1, 2])
+                            mse = tensor2np(mse)
+                            if data_idx == 0:
+                                mses = mse
+                            else:
+                                mses = np.concatenate((mses, mse), axis=0)
+                        if met.__name__ == 'tcc':
+                            if type(source) == torch.Tensor or type(x_) == torch.Tensor:
+                                source = tensor2np(source)
+                                x_ = tensor2np(x_)
+                            tcc = met(x_, source)
+                            if data_idx == 0:
+                                tccs = tcc
+                            else:
+                                tccs = np.concatenate((tccs, tcc), axis=0)
+                        if met.__name__ == 'scc':
+                            if type(source) == torch.Tensor or type(x_) == torch.Tensor:
+                                source = tensor2np(source)
+                                x_ = tensor2np(x_)
+                            scc = met(x_, source)
+                            if data_idx == 0:
+                                sccs = scc
+                            else:
+                                sccs = np.concatenate((sccs, scc), axis=0)
+                    data_idx += 1
+
+                if eval_tag in data_tags:
+                    save_result(exp_dir, recons, grnths, labels, data_name, eval_tag)
     
     for met in metrics:
         if met.__name__ == 'mse':
@@ -106,8 +119,163 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tag, eva
             print_results(exp_dir, 'tcc', tccs)
         if met.__name__ == 'scc':
             print_results(exp_dir, 'scc', sccs)
-    
-    save_result(exp_dir, q_recons, all_xs, all_labels, data_tag)
+
+
+def prediction_driver(model, spt_data_loaders, qry_data_loaders, metrics, hparams, exp_dir, data_tags):
+    eval_config = hparams.evaluating
+    loss_func = hparams.loss
+
+    prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir, hparams, data_tags, eval_config, loss_func=loss_func)
+
+
+def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir, hparams, data_tags, eval_config, loss_func=None):
+    torso_len = eval_config['torso_len']
+    signal_source = eval_config['signal_source']
+    omit = eval_config['omit']
+    window = eval_config.get('window')
+    k_shot = eval_config.get('k_shot')
+    changable = eval_config.get('changable')
+    data_scaler = eval_config.get('data_scaler')
+    model.eval()
+    n_data = 0
+    data_idx = 0
+    total_time = 0
+    mses = None
+    tccs = None
+    sccs = None
+
+    with torch.no_grad():
+        data_names = list(qry_data_loaders.keys())
+        for data_name in data_names:
+            qry_loader_tag = qry_data_loaders[data_name]
+            spt_loader_tag = spt_data_loaders[data_name]
+
+            qry_tags = list(qry_loader_tag.keys())
+            spt_tags = list(spt_loader_tag.keys())
+            
+            for tag_idx, qry_tag in enumerate(qry_tags):
+                recons, grnths, labels = None, None, None
+
+                qry_data_loader = qry_loader_tag[qry_tag]
+                spt_data_loader = spt_loader_tag[spt_tags[tag_idx]]
+                len_epoch = len(qry_data_loader)
+                n_data += len_epoch * qry_data_loader.batch_size
+                
+                data_iterator = iter(spt_data_loader)
+                for idx, qry_data in enumerate(qry_data_loader):
+                    try:
+                        spt_data = next(data_iterator)
+                    except StopIteration:
+                        data_iterator = iter(spt_data_loader)
+                        spt_data = next(data_iterator)
+
+                    qry_signal, qry_label = qry_data.x, qry_data.y
+                    qry_signal = qry_signal.to(device)
+                    qry_label = qry_label.to(device)
+
+                    if window is not None:
+                        qry_signal = qry_signal[:, :, :window]
+                    
+                    if data_scaler is not None:
+                        qry_signal = data_scaler * qry_signal
+
+                    qry_x_heart = qry_signal[:, :-torso_len, omit:]
+                    qry_x_torso = qry_signal[:, -torso_len:, omit:]
+
+                    if signal_source == 'heart':
+                        qry_source = qry_x_heart
+                    elif signal_source == 'torso':
+                        qry_source = qry_x_torso
+
+                    spt_signal, spt_label = spt_data.x, spt_data.y
+                    spt_signal = spt_signal.to(device)
+                    spt_label = spt_label.to(device)
+                    D_x = spt_data.D
+                    D_y = spt_data.D_label
+                    D_x = D_x.to(device)
+                    D_y = D_y.to(device)
+
+                    if window is not None:
+                        spt_signal = spt_signal[:, :, :window]
+                        D_x = D_x[:, :, :window]
+                    
+                    if data_scaler is not None:
+                        spt_signal = data_scaler * spt_signal
+                        D_x = data_scaler * D_x
+                    
+                    spt_x_heart = spt_signal[:, :-torso_len, omit:]
+                    spt_x_torso = spt_signal[:, -torso_len:, omit:]
+
+                    N, M, T = qry_signal.shape
+                    D_x = D_x.view(N, -1, M ,T)
+                    D_x_heart = D_x[:, :, :-torso_len, omit:]
+                    D_x_torso = D_x[:, :, -torso_len:, omit:]
+
+                    if signal_source == 'heart':
+                        spt_source = spt_x_heart
+                        D_source = D_x_heart
+                    elif signal_source == 'torso':
+                        spt_source = spt_x_torso
+                        D_source = D_x_torso
+                    
+                    if changable:
+                        K = D_source.shape[1]
+                        sub_K = np.random.randint(low=1, high=K+1, size=1)[0]
+                        D_source = D_source[:, :sub_K, :]
+                        D_y = D_y[:, :sub_K, :]
+
+                    physics_vars, statistic_vars = model.prediction(qry_source, spt_source, D_source, D_y, data_name)
+
+                    x_ = physics_vars[0]
+
+                    if idx == 0:
+                        recons = tensor2np(x_)
+                        grnths = tensor2np(qry_source)
+                        labels = tensor2np(qry_label)
+                    else:
+                        recons = np.concatenate((recons, tensor2np(x_)), axis=0)
+                        grnths = np.concatenate((grnths, tensor2np(qry_source)), axis=0)
+                        labels = np.concatenate((labels, tensor2np(qry_label)), axis=0)
+
+                    for met in metrics:
+                        if met.__name__ == 'mse':
+                            mse = met(x_, qry_source)
+                            mse = mse.mean([1, 2])
+                            mse = tensor2np(mse)
+                            if data_idx == 0:
+                                mses = mse
+                            else:
+                                mses = np.concatenate((mses, mse), axis=0)
+                        if met.__name__ == 'tcc':
+                            if type(qry_source) == torch.Tensor or type(x_) == torch.Tensor:
+                                qry_source = tensor2np(qry_source)
+                                x_ = tensor2np(x_)
+                            tcc = met(x_, qry_source)
+                            if data_idx == 0:
+                                tccs = tcc
+                            else:
+                                tccs = np.concatenate((tccs, tcc), axis=0)
+                        if met.__name__ == 'scc':
+                            if type(qry_source) == torch.Tensor or type(x_) == torch.Tensor:
+                                qry_source = tensor2np(qry_source)
+                                x_ = tensor2np(x_)
+                            scc = met(x_, qry_source)
+                            if data_idx == 0:
+                                sccs = scc
+                            else:
+                                sccs = np.concatenate((sccs, scc), axis=0)
+                    data_idx += 1
+
+                if qry_tag in data_tags:
+                    save_result(exp_dir, recons, grnths, labels, data_name, qry_tag)
+
+    for met in metrics:
+        if met.__name__ == 'mse':
+            print_results(exp_dir, 'mse', mses)
+        if met.__name__ == 'tcc':
+            print_results(exp_dir, 'tcc', tccs)
+        if met.__name__ == 'scc':
+            print_results(exp_dir, 'scc', sccs)
 
 
 def print_results(exp_dir, met_name, mets):
@@ -132,7 +300,7 @@ def print_results(exp_dir, met_name, mets):
         f.write('total: {} for full seq avg = {}, std = {}\n'.format(met_name, met.mean(), met.std()))
 
 
-def save_result(exp_dir, recons, all_xs, all_labels, data_tag):
+def save_result(exp_dir, recons, inputs, labels, data_tag):
     if not os.path.exists(exp_dir + '/data'):
         os.makedirs(exp_dir + '/data')
 
@@ -140,7 +308,7 @@ def save_result(exp_dir, recons, all_xs, all_labels, data_tag):
     for data_name in data_names:
         sio.savemat(
             os.path.join(exp_dir, 'data/{}_{}.mat'.format(data_name, data_tag)), 
-            {'recons': recons[data_name], 'inputs': all_xs[data_name], 'label': all_labels[data_name]}
+            {'recons': recons, 'inputs': inputs, 'label': labels}
         )
 
 

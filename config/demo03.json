@@ -1,0 +1,112 @@
+{
+    "exp_name": "demo",
+    "exp_id": "03",
+    
+    "model": {
+        "type": "MetaDynamics",
+        "args": {
+            "num_channel": [
+                1,
+                8,
+                16,
+                32,
+                64,
+                128,
+                256
+            ],
+            "latent_dim": 64,
+            "obs_dim": 55,
+            "init_dim": 5,
+            "rnn_type": "gcgru"
+        }
+    },
+
+    "data":{
+        "data_set": "HeartEpisodicDataLoader",
+        "data_dir": "data/",
+        "data_names": ["EC_set2", "DC_set2", "AW_set2"],
+        "signal_type": "egm",
+        "num_meshes": [568, 595, 600],
+        "seq_len": 101,
+        "graph_method": "bipartite",
+        "num_workers": 1,
+        "k_shot": 5,
+        "eval_tags": [
+            "spt1",
+            "spt2",
+            "spt3",
+            "spt4",
+            "spt5"
+        ],
+        "pred_tags": [
+            "qry1",
+            "qry2",
+            "qry3",
+            "qry4",
+            "qry5"
+        ]
+    },
+
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 1e-3,
+            "amsgrad": false,
+            "betas": [0.9, 0.999]
+        }
+    },
+    "lr_scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 50,
+            "gamma": 0.5
+        }
+    },
+
+    "loss": "meta_loss_new",
+    "metrics": [
+        "mse", "tcc", "scc", "dcc"
+    ],
+
+    "batch_size": 5,
+    "ecgi": 0,
+    "device": 0,
+    "training": {
+        "epochs": 300,
+        "meta_dataset": true,
+
+        "save_period": 20,
+        "signal_source": "heart",
+        "omit": 5,
+        "window": 60,
+        "k_shot": 5,
+        "changable": true,
+
+        "monitor": "min val_loss",
+        "early_stop": 100,
+
+        "torso_len": 120,
+        "loss_type": "mse",
+
+        "kl_args":{
+            "min_annealing_factor": 0.0,
+            "anneal_update": 200,
+            "elbo": "sum",
+            "lambda": 1
+        },
+        "r1": 1e-1,
+        "r2": 1e-4,
+        "r3": 1e-4,
+        "l": 1e-1
+    },
+    "evaluating": {
+        "signal_source": "heart",
+        "torso_len": 120,
+        "omit": 5,
+        "window": 60,
+        "k_shot": 5,
+        "changable": false
+    },
+    
+    "best_model": "m_best"
+}

@@ -36,7 +36,7 @@ def parse_args():
     return args
 
 
-def data_loading(hparams, training=True, data_tag='test'):
+def data_loading(hparams, stage=1):
     data_config = hparams.data
     data_set = data_config['data_set']
     data_dir = data_config['data_dir']
@@ -47,19 +47,20 @@ def data_loading(hparams, training=True, data_tag='test'):
     seq_len = data_config['seq_len']
     k_shot = data_config.get('k_shot')
 
-    if training:
+    if stage == 1:
         train_loaders, valid_loaders = {}, {}
-    else:
-        test_loaders = {}
+    elif stage == 2:
+        eval_loaders = {}
+    elif stage == 3:
+        eval_loaders, pred_loaders = {}, {}
     
     for data_name, num_mesh in zip(data_names, num_meshes):
-        if training:
+        if stage == 1:
             batch_size = hparams.batch_size
-            split_train = 'train'
             train_loader = getattr(data_loaders, data_set)(
                 batch_size=batch_size,
                 data_dir=data_dir,
-                split=split_train,
+                split='train',
                 shuffle=True,
                 num_workers=num_workers,
                 data_name=data_name,
@@ -69,11 +70,10 @@ def data_loading(hparams, training=True, data_tag='test'):
                 k_shot=k_shot
             )
 
-            split_val = 'valid'
             valid_loader = getattr(data_loaders, data_set)(
                 batch_size=batch_size,
                 data_dir=data_dir,
-                split=split_val,
+                split='valid',
                 shuffle=False,
                 num_workers=num_workers,
                 data_name=data_name,
@@ -84,27 +84,70 @@ def data_loading(hparams, training=True, data_tag='test'):
             )
             train_loaders[data_name] = train_loader
             valid_loaders[data_name] = valid_loader
-        else:
+        elif stage == 2:
             batch_size = hparams.batch_size
-            shuffle_test = False
-            test_loader = getattr(data_loaders, data_set)(
-                batch_size=batch_size,
-                data_dir=data_dir,
-                split=data_tag,
-                shuffle=False,
-                num_workers=num_workers,
-                data_name=data_name,
-                signal_type=signal_type,
-                num_mesh=num_mesh,
-                seq_len=seq_len,
-                k_shot=k_shot
-            )
-            test_loaders[data_name] = test_loader
+            eval_tags = data_config['eval_tags']
+            eval_loader_tag = {}
 
-    if training:
+            for eval_tag in eval_tags:
+                eval_loader = getattr(data_loaders, data_set)(
+                    batch_size=batch_size,
+                    data_dir=data_dir,
+                    split=eval_tag,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    data_name=data_name,
+                    signal_type=signal_type,
+                    num_mesh=num_mesh,
+                    seq_len=seq_len,
+                    k_shot=k_shot
+                )
+                eval_loader_tag[eval_tag] = eval_loader
+            eval_loaders[data_name] = eval_loader_tag
+        elif stage == 3:
+            batch_size = hparams.batch_size
+            eval_tags = data_config['eval_tags']
+            pred_tags = data_config['pred_tags']
+            eval_loader_tag = {}
+            pred_loader_tag = {}
+
+            for eval_tag, pred_tag in zip(eval_tags, pred_tags):
+                eval_loader = getattr(data_loaders, data_set)(
+                    batch_size=batch_size,
+                    data_dir=data_dir,
+                    split=eval_tag,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    data_name=data_name,
+                    signal_type=signal_type,
+                    num_mesh=num_mesh,
+                    seq_len=seq_len,
+                    k_shot=k_shot
+                )
+
+                pred_loader = getattr(data_loaders, data_set)(
+                    batch_size=batch_size,
+                    data_dir=data_dir,
+                    split=pred_tag,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    data_name=data_name,
+                    signal_type=signal_type,
+                    num_mesh=num_mesh,
+                    seq_len=seq_len,
+                    k_shot=k_shot
+                )
+                eval_loader_tag[eval_tag] = eval_loader
+                pred_loader_tag[pred_tag] = pred_loader
+            eval_loaders[data_name] = eval_loader_tag
+            pred_loaders[data_name] = pred_loader_tag
+
+    if stage == 1:
         return train_loaders, valid_loaders
-    else:
-        return test_loaders
+    elif stage == 2:
+        return eval_loaders
+    elif stage == 3:
+        return eval_loaders, pred_loaders
 
 
 def get_network_paramcount(model):
@@ -160,7 +203,7 @@ def train(hparams, checkpt, train_loaders, valid_loaders, exp_dir):
         train_loaders, valid_loaders, loss, metrics, hparams, exp_dir)
 
 
-def evaluate(hparams, test_loaders, exp_dir, data_tag):
+def evaluate(hparams, eval_loaders, exp_dir, data_tags):
     # models
     model_info = dict(hparams.model)
     model = getattr(model_arch, model_info['type'])(**model_info['args'])
@@ -181,7 +224,32 @@ def evaluate(hparams, test_loaders, exp_dir, data_tag):
     metrics = [getattr(model_metric, met) for met in hparams.metrics]
     
     # evaluate model
-    evaluating.evaluate_driver(model, test_loaders, metrics, hparams, exp_dir, data_tag)
+    evaluating.evaluate_driver(model, eval_loaders, metrics, hparams, exp_dir, data_tags)
+
+
+def prediction(hparams, eval_loaders, pred_loaders, exp_dir, data_tags):
+    # models
+    model_info = dict(hparams.model)
+    model = getattr(model_arch, model_info['type'])(**model_info['args'])
+
+    # setup parameters for each patient
+    graph_method = hparams.data['graph_method']
+    data_dir = os.path.join(osp.dirname(osp.realpath('__file__')), hparams.data['data_dir'])
+    batch_size = hparams.batch_size
+    load_torso = hparams.load_torso
+    for data_name in hparams.data['data_names']:
+        model.setup(data_name, data_dir, batch_size, load_torso, graph_method)
+
+    model.to(device)
+    checkpt = torch.load(exp_dir + '/' + hparams.best_model, map_location=device)
+    model.load_state_dict(checkpt['state_dict'])
+
+    # metrics
+    metrics = [getattr(model_metric, met) for met in hparams.metrics]
+    
+    # evaluate model
+    evaluating.prediction_driver(model, eval_loaders, pred_loaders, 
+                                 metrics, hparams, exp_dir, data_tags)
 
 
 def main(hparams, checkpt, stage, evaluation='test'):
@@ -205,6 +273,12 @@ def main(hparams, checkpt, stage, evaluation='test'):
 
         # start testing
         evaluate(hparams, data_loaders, exp_dir, evaluation)
+    elif stage == 3:
+        # load data
+        eval_loaders, pred_loaders = data_loading(hparams, stage)
+
+        # start personalization
+        prediction(hparams, eval_loaders, pred_loaders, exp_dir, data_tags)
 
 
 def make_graph(hparams):
@@ -262,8 +336,13 @@ if __name__ == '__main__':
         print('--------------------------------------')
     elif args.stage == 2:
         print('Stage 2: begin evaluating ...')
-        main(hparams, checkpt, stage=args.stage, evaluation=args.eval)
+        main(hparams, checkpt, stage=args.stage, data_tags=tags)
         print('Evaluating completed!')
+        print('--------------------------------------')
+    elif args.stage == 3:
+        print('Stage 3: begin prediction ...')
+        main(hparams, checkpt, stage=args.stage, data_tags=tags)
+        print('Prediction completed!')
         print('--------------------------------------')
     elif args.stage == 0:
         print('Stage 0: begin making graphs ...')

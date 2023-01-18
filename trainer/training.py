@@ -18,8 +18,9 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     train_loaders, valid_loaders, loss, metrics, hparams, exp_dir):
     train_loss, val_loss = [], []
 
-    kl_t, nll_t = [], []
-    kl_e, nll_e = [], []
+    kl_t, kl_e = [], []
+    nll_t, nll_e = [], []
+    kl_0_t, kl_0_e = [], []
 
     train_config = dict(hparams.training)
     monitor_mode, monitor_metric = train_config['monitor'].split()
@@ -31,6 +32,7 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
         train_loss, val_loss = checkpt['train_loss'], checkpt['val_loss']
 
         kl_t, kl_e = checkpt['kl_t'], checkpt['kl_e']
+        kl_0_t, kl_0_e = checkpt['kl_0_t'], checkpt['kl_0_e']
         nll_t, nll_e = checkpt['nll_t'], checkpt['nll_e']
 
         metric_err = checkpt.get('opt_metric_err')
@@ -41,11 +43,11 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     for epoch in range(epoch_start, train_config['epochs'] + 1):
         ts = time.time()
         # train epoch
-        total_loss_t, kl_loss_t, nll_loss_t = \
+        total_loss_t, kl_loss_t, nll_loss_t, kl_0_loss_t = \
             train_epoch(model, epoch, loss, optimizer, train_loaders, hparams)
         
         # valid epoch
-        total_loss_e, kl_loss_e, nll_loss_e = \
+        total_loss_e, kl_loss_e, nll_loss_e, kl_0_loss_e = \
             valid_epoch(model, epoch, loss, valid_loaders, hparams)
         te = time.time()
 
@@ -55,6 +57,8 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
 
         kl_t.append(kl_loss_t)
         kl_e.append(kl_loss_e)
+        kl_0_t.append(kl_0_loss_t)
+        kl_0_e.append(kl_0_loss_e)
         nll_t.append(nll_loss_t)
         nll_e.append(nll_loss_e)
 
@@ -79,6 +83,8 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             
             'kl_t': kl_t,
             'kl_e': kl_e,
+            'kl_0_t': kl_0_t,
+            'kl_0_e': kl_0_e,
             'nll_t': nll_t,
             'nll_e': nll_e
         }
@@ -125,6 +131,10 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             kl_t,
             kl_e
         ],
+        'kl_0': [
+            kl_0_t,
+            kl_0_e
+        ],
         'nll': [
             nll_t,
             nll_e
@@ -139,10 +149,16 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
     kl_args = train_config['kl_args']
     torso_len = train_config['torso_len']
     signal_source = train_config['signal_source']
+    omit = train_config['omit']
+    window = train_config.get('window')
+    k_shot = train_config.get('k_shot')
+    changable = train_config.get('changable')
+    meta_dataset = train_config.get('meta_dataset')
     loss_type = train_config.get('loss_type')
     loss_func = hparams.loss
     total_loss = 0
     kl_loss, nll_loss = 0, 0
+    kl_0_loss = 0
     n_steps = 0
     batch_size = hparams.batch_size
 
@@ -151,18 +167,23 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
     len_epoch = len(data_loaders[data_names[0]]) * len(data_names)
     for data_name in data_names:
         data_loader = data_loaders[data_name]
+        if epoch > 1 and meta_dataset:
+            data_loader = data_loader.next()
         for idx, data in enumerate(data_loader):
             signal, label = data.x, data.y
             signal = signal.to(device)
             label = label.to(device)
 
-            x = signal[:, :-torso_len, :]
-            y = signal[:, -torso_len:, :]
+            if window is not None:
+                signal = signal[:, :, :window]
+
+            x_heart = signal[:, :-torso_len, omit:]
+            x_torso = signal[:, -torso_len:, omit:]
 
             if signal_source == 'heart':
-                source = x
+                source = x_heart
             elif signal_source == 'torso':
-                source = y
+                source = x_torso
 
             optimizer.zero_grad()
 
@@ -172,7 +193,36 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             r_kl = kl_args['lambda']
             kl_factor = kl_annealing_factor * r_kl
             
-            physics_vars, statistic_vars = model(source, data_name)
+            # physics_vars, statistic_vars = model(source, data_name)
+            if k_shot is None:
+                physics_vars, statistic_vars = model(source, label, data_name)
+            else:
+                D_x = data.D
+                D_y = data.D_label
+                D_x = D_x.to(device)
+                D_y = D_y.to(device)
+
+                if window is not None:
+                    D_x = D_x[:, :, :window]
+
+                N, M, T = signal.shape
+                D_x = D_x.view(N, -1, M ,T)
+
+                D_x_heart = D_x[:, :, :-torso_len, omit:]
+                D_x_torso = D_x[:, :, -torso_len:, omit:]
+
+                if signal_source == 'heart':
+                    D_source = D_x_heart
+                elif signal_source == 'torso':
+                    D_source = D_x_torso
+                
+                if changable:
+                    K = D_source.shape[1]
+                    sub_K = np.random.randint(low=1, high=K+1, size=1)[0]
+                    D_source = D_source[:, :sub_K, :]
+                    D_y = D_y[:, :sub_K, :]
+
+                physics_vars, statistic_vars = model(source, label, D_source, D_y, data_name)
             
             if loss_func == 'dmm_loss':
                 x_, _ = physics_vars
@@ -183,6 +233,26 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
                 x_, _ = physics_vars
                 total = loss(x_, x)
+            elif loss_func == 'meta_loss':
+                x_ = physics_vars[0]
+                mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0 = statistic_vars
+
+                if loss_type is None:
+                    loss_type = 'mse'
+                
+                r1 = train_config.get('r1')
+                r2 = train_config.get('r2')
+                r3 = train_config.get('r3')
+                l = train_config.get('l')
+                if r1 is None:
+                    r1 = 1
+                if r2 is None:
+                    r2 = 0
+                if r3 is None:
+                    r3 = 1
+                
+                kl, nll, kl_0, total = \
+                    loss(x_, source, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
             elif loss_func == 'elbo_loss':
                 mu_x, logvar_x = physics_vars
                 mu_z, logvar_z = statistic_vars
@@ -200,6 +270,8 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             elif loss_func == 'elbo_loss':
                 kl_loss += kl.item()
                 nll_loss += nll.item()
+            elif loss_func == 'meta_loss':
+                kl_0_loss += kl_0.item()
             n_steps += 1
 
             optimizer.step()
@@ -208,9 +280,10 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
 
     total_loss /= n_steps
     kl_loss /= n_steps
+    kl_0_loss /= n_steps
     nll_loss /= n_steps
 
-    return total_loss, kl_loss, nll_loss
+    return total_loss, kl_loss, nll_loss, kl_0_loss
 
 
 def valid_epoch(model, epoch, loss, data_loaders, hparams):
@@ -219,10 +292,16 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
     kl_args = train_config['kl_args']
     torso_len = train_config['torso_len']
     signal_source = train_config['signal_source']
+    omit = train_config['omit']
+    window = train_config.get('window')
+    k_shot = train_config.get('k_shot')
+    changable = train_config.get('changable')
+    meta_dataset = train_config.get('meta_dataset')
     loss_type = train_config.get('loss_type')
     loss_func = hparams.loss
     total_loss = 0
     kl_loss, nll_loss = 0, 0
+    kl_0_loss = 0
     n_steps = 0
     batch_size = hparams.batch_size
 
@@ -231,23 +310,56 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
         len_epoch = len(data_loaders[data_names[0]]) * len(data_names)
         for data_name in data_names:
             data_loader = data_loaders[data_name]
+            if epoch > 1 and meta_dataset:
+                data_loader = data_loader.next()
             for idx, data in enumerate(data_loader):
                 signal, label = data.x, data.y
                 signal = signal.to(device)
                 label = label.to(device)
 
-                x = signal[:, :-torso_len, :]
-                y = signal[:, -torso_len:, :]
+                if window is not None:
+                    signal = signal[:, :, :window]
+                
+                x_heart = signal[:, :-torso_len, omit:]
+                x_torso = signal[:, -torso_len:, omit:]
 
                 if signal_source == 'heart':
-                    source = x
+                    source = x_heart
                 elif signal_source == 'torso':
-                    source = y
+                    source = x_torso
 
                 r_kl = kl_args['lambda']
                 kl_factor = 1 * r_kl
                 
-                physics_vars, statistic_vars = model(source, data_name)
+                # physics_vars, statistic_vars = model(source, data_name)
+                if k_shot is None:
+                    physics_vars, statistic_vars = model(source, label, data_name)
+                else:
+                    D_x = data.D
+                    D_y = data.D_label
+                    D_x = D_x.to(device)
+                    D_y = D_y.to(device)
+
+                    if window is not None:
+                        D_x = D_x[:, :, :window]
+
+                    N, M, T = signal.shape
+                    D_x = D_x.view(N, -1, M ,T)
+                    D_x_heart = D_x[:, :, :-torso_len, omit:]
+                    D_x_torso = D_x[:, :, -torso_len:, omit:]
+
+                    if signal_source == 'heart':
+                        D_source = D_x_heart
+                    elif signal_source == 'torso':
+                        D_source = D_x_torso
+                    
+                    if changable:
+                        K = D_source.shape[1]
+                        sub_K = np.random.randint(low=1, high=K+1, size=1)[0]
+                        D_source = D_source[:, :sub_K, :]
+                        D_y = D_y[:, :sub_K, :]
+
+                    physics_vars, statistic_vars = model(source, label, D_source, D_y, data_name)
                 
                 if loss_func == 'dmm_loss':
                     x_, _ = physics_vars
@@ -258,6 +370,26 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                 elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
                     x_, _ = physics_vars
                     total = loss(x_, x)
+                elif loss_func == 'meta_loss':
+                    x_ = physics_vars[0]
+                    mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0 = statistic_vars
+
+                    if loss_type is None:
+                        loss_type = 'mse'
+                    
+                    r1 = train_config.get('r1')
+                    r2 = train_config.get('r2')
+                    r3 = train_config.get('r3')
+                    l = train_config.get('l')
+                    if r1 is None:
+                        r1 = 1
+                    if r2 is None:
+                        r2 = 0
+                    if r3 is None:
+                        r3 = 1
+                    
+                    kl, nll, kl_0, total = \
+                        loss(x_, source, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
                 elif loss_func == 'elbo_loss':
                     mu_x, logvar_x = physics_vars
                     mu_z, logvar_z = statistic_vars
@@ -273,13 +405,16 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                 elif loss_func == 'elbo_loss':
                     kl_loss += kl.item()
                     nll_loss += nll.item()
+                elif loss_func == 'meta_loss':
+                    kl_0_loss += kl_0.item()
                 n_steps += 1
 
     total_loss /= n_steps
     kl_loss /= n_steps
+    kl_0_loss /= n_steps
     nll_loss /= n_steps
 
-    return total_loss, kl_loss, nll_loss
+    return total_loss, kl_loss, nll_loss, kl_0_loss
 
 
 def determine_annealing_factor(min_anneal_factor,
