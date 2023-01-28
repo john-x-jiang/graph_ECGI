@@ -149,7 +149,7 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
     kl_args = train_config['kl_args']
     torso_len = train_config['torso_len']
     signal_source = train_config['signal_source']
-    omit = train_config['omit']
+    omit = train_config.get('omit')
     window = train_config.get('window')
     k_shot = train_config.get('k_shot')
     changable = train_config.get('changable')
@@ -182,8 +182,10 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
 
             if signal_source == 'heart':
                 source = x_heart
+                output = x_heart
             elif signal_source == 'torso':
                 source = x_torso
+                output = x_heart
 
             optimizer.zero_grad()
 
@@ -195,7 +197,7 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             
             # physics_vars, statistic_vars = model(source, data_name)
             if k_shot is None:
-                physics_vars, statistic_vars = model(source, label, data_name)
+                physics_vars, statistic_vars = model(source, data_name)
             else:
                 D_x = data.D
                 D_y = data.D_label
@@ -229,10 +231,10 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
                 mu, logvar = statistic_vars
 
                 kl, nll, total = \
-                    loss(x, x_, mu, logvar, kl_factor)
+                    loss(output, x_, mu, logvar, kl_factor)
             elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
                 x_, _ = physics_vars
-                total = loss(x_, x)
+                total = loss(x_, output)
             elif loss_func == 'meta_loss':
                 x_ = physics_vars[0]
                 mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0 = statistic_vars
@@ -252,12 +254,12 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
                     r3 = 1
                 
                 kl, nll, kl_0, total = \
-                    loss(x_, source, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
+                    loss(x_, output, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
             elif loss_func == 'elbo_loss':
                 mu_x, logvar_x = physics_vars
                 mu_z, logvar_z = statistic_vars
 
-                kl, nll, total = loss(mu_x, logvar_x, x, mu_z, logvar_z, kl_factor)
+                kl, nll, total = loss(mu_x, logvar_x, output, mu_z, logvar_z, kl_factor)
             else:
                 raise NotImplemented
 
@@ -292,7 +294,7 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
     kl_args = train_config['kl_args']
     torso_len = train_config['torso_len']
     signal_source = train_config['signal_source']
-    omit = train_config['omit']
+    omit = train_config.get('omit')
     window = train_config.get('window')
     k_shot = train_config.get('k_shot')
     changable = train_config.get('changable')
@@ -325,15 +327,16 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
 
                 if signal_source == 'heart':
                     source = x_heart
+                    output = x_heart
                 elif signal_source == 'torso':
                     source = x_torso
+                    output = x_heart
 
                 r_kl = kl_args['lambda']
                 kl_factor = 1 * r_kl
                 
-                # physics_vars, statistic_vars = model(source, data_name)
                 if k_shot is None:
-                    physics_vars, statistic_vars = model(source, label, data_name)
+                    physics_vars, statistic_vars = model(source, data_name)
                 else:
                     D_x = data.D
                     D_y = data.D_label
@@ -366,10 +369,10 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                     mu, logvar = statistic_vars
 
                     kl, nll, total = \
-                        loss(x, x_, mu, logvar, kl_factor)
+                        loss(output, x_, mu, logvar, kl_factor)
                 elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
                     x_, _ = physics_vars
-                    total = loss(x_, x)
+                    total = loss(x_, output)
                 elif loss_func == 'meta_loss':
                     x_ = physics_vars[0]
                     mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0 = statistic_vars
@@ -389,12 +392,12 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                         r3 = 1
                     
                     kl, nll, kl_0, total = \
-                        loss(x_, source, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
+                        loss(x_, output, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
                 elif loss_func == 'elbo_loss':
                     mu_x, logvar_x = physics_vars
                     mu_z, logvar_z = statistic_vars
 
-                    kl, nll, total = loss(mu_x, logvar_x, x, mu_z, logvar_z, kl_factor)
+                    kl, nll, total = loss(mu_x, logvar_x, output, mu_z, logvar_z, kl_factor)
                 else:
                     raise NotImplemented
 

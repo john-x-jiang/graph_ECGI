@@ -317,6 +317,69 @@ class Encoder(nn.Module):
         return x
 
 
+class EncoderTorso(nn.Module):
+    def __init__(self, num_filters, len_seq, latent_f_dim):
+        super().__init__()
+        self.nf = num_filters
+        self.ns = len_seq
+        self.latent_f_dim = latent_f_dim
+
+        self.conv1 = ST_Block(self.nf[0], self.nf[2], self.ns[0], self.ns[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv2 = ST_Block(self.nf[2], self.nf[3], self.ns[2], self.ns[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv3 = ST_Block(self.nf[3], self.nf[4], self.ns[3], self.ns[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
+
+        self.fce1 = nn.Conv2d(self.nf[4], self.nf[-1], 1)
+        self.fce2 = nn.Conv2d(self.nf[-1], latent_f_dim, 1)
+
+        self.tg = dict()
+        self.tg1 = dict()
+        self.tg2 = dict()
+
+        self.t_P01 = dict()
+        self.t_P12 = dict()
+        self.t_P23 = dict()
+    
+    def setup(self, heart_name, params):
+        self.tg[heart_name] = params["t_bg"]
+        self.tg1[heart_name] = params["t_bg1"]
+        self.tg2[heart_name] = params["t_bg2"]
+
+        self.t_P01[heart_name] = params["t_P01"]
+        self.t_P12[heart_name] = params["t_P12"]
+        self.t_P23[heart_name] = params["t_P23"]
+    
+    def forward(self, x, heart_name):
+        batch_size, seq_len = x.shape[0], x.shape[-1]
+        # layer 1 (graph setup, conv, nonlinear, pool)
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[0], seq_len), self.tg[heart_name].edge_index, self.tg[heart_name].edge_attr  # (1230*bs) X f[0]
+        x = self.conv1(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[2] * self.ns[2])
+        x = torch.matmul(self.t_P01[heart_name], x)
+        
+        # layer 2
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[2], self.ns[2]), self.tg1[heart_name].edge_index, self.tg1[heart_name].edge_attr
+        x = self.conv2(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[3] * self.ns[3])
+        x = torch.matmul(self.t_P12[heart_name], x)
+        
+        # layer 3
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[3], self.ns[3]), self.tg2[heart_name].edge_index, self.tg2[heart_name].edge_attr
+        x = self.conv3(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[4] * self.ns[4])
+        x = torch.matmul(self.t_P23[heart_name], x)
+        x = x.view(batch_size, -1, self.nf[4], self.ns[4])
+
+        x = x.permute(0, 2, 1, 3).contiguous()
+        x = F.elu(self.fce1(x), inplace=True)
+        x = torch.tanh(self.fce2(x))
+
+        x = x.permute(0, 2, 1, 3).contiguous()
+        return x
+
+
 class Decoder(nn.Module):
     def __init__(self, num_filters, len_seq, latent_f_dim):
         super().__init__()
@@ -327,10 +390,10 @@ class Decoder(nn.Module):
         self.fcd3 = nn.Conv2d(latent_f_dim, self.nf[5], 1)
         self.fcd4 = nn.Conv2d(self.nf[5], self.nf[4], 1)
 
-        self.deconv4 = Spatial_Block(self.nf[4], self.nf[3], self.ns[4], self.ns[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv3 = Spatial_Block(self.nf[3], self.nf[2], self.ns[3], self.ns[2], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv2 = Spatial_Block(self.nf[2], self.nf[1], self.ns[2], self.ns[1], dim=3, kernel_size=(3, 1), process='d', norm=False)
-        self.deconv1 = Spatial_Block(self.nf[1], self.nf[0], self.ns[1], self.ns[0], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv4 = ST_Block(self.nf[4], self.nf[3], self.ns[4], self.ns[3], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv3 = ST_Block(self.nf[3], self.nf[2], self.ns[3], self.ns[2], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv2 = ST_Block(self.nf[2], self.nf[1], self.ns[2], self.ns[1], dim=3, kernel_size=(3, 1), process='d', norm=False)
+        self.deconv1 = ST_Block(self.nf[1], self.nf[0], self.ns[1], self.ns[0], dim=3, kernel_size=(3, 1), process='d', norm=False)
 
         self.bg = dict()
         self.bg1 = dict()
@@ -911,7 +974,7 @@ def get_params(data_path, heart_name, batch_size, load_torso=0, graph_method=Non
                 "t_P01": t_P01, "t_P12": t_P12, "t_P23": t_P23,
                 "t_num_nodes": t_num_nodes, "t_g": t_g, "t_bg": t_bg,
                 "H_inv": H_inv, "P": Ps,
-                "H": H, "L": L
+                # "H": H, "L": L
             }
         else:
             raise NotImplementedError

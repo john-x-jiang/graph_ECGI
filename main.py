@@ -28,9 +28,9 @@ def parse_args():
 
     parser.add_argument('--config', type=str, default='b01', help='config filename')
     parser.add_argument('--seed', type=int, default=123, help='random seed')
-    parser.add_argument('--stage', type=int, default=1, help='1.Training, 2. Testing')
+    parser.add_argument('--stage', type=int, default=1, help='1. Training, 2. Testing')
     parser.add_argument('--checkpt', type=str, default='None', help='checkpoint to resume training from')
-    parser.add_argument('--eval', type=str, default='test', help='dataset')
+    parser.add_argument('--tag', type=str, default='test', help='dataset to be evaluated')
 
     args = parser.parse_args()
     return args
@@ -252,7 +252,7 @@ def prediction(hparams, eval_loaders, pred_loaders, exp_dir, data_tags):
                                  metrics, hparams, exp_dir, data_tags)
 
 
-def main(hparams, checkpt, stage, evaluation='test'):
+def main(hparams, checkpt, stage, data_tags='test'):
     # directory path to save the model/results
     exp_dir = osp.join(osp.dirname(osp.realpath('__file__')),
                          'experiments', hparams.exp_name, hparams.exp_id)
@@ -263,19 +263,19 @@ def main(hparams, checkpt, stage, evaluation='test'):
         # copy model to exp_dir
 
         # load data
-        train_loaders, valid_loaders = data_loading(hparams, training=True)
+        train_loaders, valid_loaders = data_loading(hparams, stage=stage)
 
         # start training
         train(hparams, checkpt, train_loaders, valid_loaders, exp_dir)
     elif stage == 2:
         # load data
-        data_loaders = data_loading(hparams, training=False, data_tag=evaluation)
+        data_loaders = data_loading(hparams, stage=stage)
 
         # start testing
-        evaluate(hparams, data_loaders, exp_dir, evaluation)
+        evaluate(hparams, data_loaders, exp_dir, data_tags)
     elif stage == 3:
         # load data
-        eval_loaders, pred_loaders = data_loading(hparams, stage)
+        eval_loaders, pred_loaders = data_loading(hparams, stage=stage)
 
         # start personalization
         prediction(hparams, eval_loaders, pred_loaders, exp_dir, data_tags)
@@ -328,6 +328,8 @@ if __name__ == '__main__':
             exit(0)
     else:
         checkpt = None
+    
+    tags = args.tag.split(',')
     
     if args.stage == 1:
         print('Stage 1: begin training ...')

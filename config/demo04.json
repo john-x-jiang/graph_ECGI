@@ -1,9 +1,9 @@
 {
     "exp_name": "demo",
-    "exp_id": "01",
+    "exp_id": "04",
     
     "model": {
-        "type": "ST_GCNN",
+        "type": "ST_GCNN_ECGI",
         "args": {
             "num_filters": [
                 1,
@@ -29,7 +29,7 @@
     "data":{
         "data_set": "HeartDataLoader",
         "data_dir": "data/",
-        "data_names": ["EC"],
+        "data_names": ["EC_seg_1_1"],
         "signal_type": "egm",
         "num_meshes": [568],
         "seq_len": 101,
@@ -56,13 +56,13 @@
     ],
 
     "batch_size": 8,
-    "load_torso": 0,
+    "load_torso": 1,
     "device": 0,
     "training": {
         "epochs": 500,
 
         "save_period": 20,
-        "signal_source": "heart",
+        "signal_source": "torso",
 
         "monitor": "min val_loss",
         "early_stop": 100,
@@ -77,7 +77,7 @@
         }
     },
     "evaluating": {
-        "signal_source": "heart",
+        "signal_source": "torso",
         "torso_len": 120
     },
     
