@@ -29,14 +29,18 @@
     "data":{
         "data_set": "HeartDataLoader",
         "data_dir": "data/",
-        "data_names": ["EC"],
+        "data_names": ["EC_set2"],
         "signal_type": "egm",
         "num_meshes": [568],
         "seq_len": 101,
         "graph_method": "bipartite",
         "num_workers": 1,
         "eval_tags": [
-            "test"
+            "qry1",
+            "qry2",
+            "qry3",
+            "qry4",
+            "qry5"
         ]
     },
 

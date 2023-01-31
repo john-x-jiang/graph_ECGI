@@ -63,13 +63,13 @@
         }
     },
 
-    "loss": "meta_loss_new",
+    "loss": "meta_loss",
     "metrics": [
-        "mse", "tcc", "scc", "dcc"
+        "mse", "tcc", "scc"
     ],
 
     "batch_size": 5,
-    "ecgi": 0,
+    "load_torso": 0,
     "device": 0,
     "training": {
         "epochs": 300,
