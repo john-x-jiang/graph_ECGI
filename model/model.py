@@ -172,6 +172,7 @@ class ST_GCNN(BaseModel):
     def forward(self, x, heart_name):
         z = self.encoder(x, heart_name)
         mu, logvar = self.latent_modeling(z, heart_name)
+        z = self.reparameterize(mu, logvar)
         x = self.decoder(z, heart_name)
         return (x, None), (mu, logvar)
 
