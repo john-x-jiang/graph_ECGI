@@ -171,10 +171,11 @@ class ST_GCNN(BaseModel):
     
     def forward(self, x, heart_name):
         z = self.encoder(x, heart_name)
-        mu, logvar = self.latent_modeling(z, heart_name)
-        z = self.reparameterize(mu, logvar)
+        # mu, logvar = self.latent_modeling(z, heart_name)
+        # z = self.reparameterize(mu, logvar)
         x = self.decoder(z, heart_name)
-        return (x, None), (mu, logvar)
+        # return (x, None), (mu, logvar)
+        return (x, None), (None, None)
 
 
 class MetaDynamics(BaseModel):
@@ -183,13 +184,17 @@ class MetaDynamics(BaseModel):
                  latent_dim,
                  obs_dim,
                  init_dim,
-                 rnn_type):
+                 rnn_type,
+                 trans_model,
+                 trans_args):
         super().__init__()
         self.nf = num_channel
         self.latent_dim = latent_dim
         self.obs_dim = obs_dim
         self.init_dim = init_dim
         self.rnn_type = rnn_type
+        self.trans_model = trans_model
+        self.trans_args = trans_args
 
         # Domain model
         self.domain = DomainEncoder(obs_dim, num_channel, latent_dim)
@@ -202,7 +207,10 @@ class MetaDynamics(BaseModel):
         self.var_0 = nn.Linear(latent_dim, latent_dim)
 
         # time modeling
-        self.propagation = Transition(latent_dim, latent_dim, stochastic=False)
+        if trans_model == 'recurrent':
+            self.propagation = Transition_Recurrent(**trans_args)
+        elif trans_model == 'ODE':
+            self.propagation = Transition_ODE(**trans_args)
 
         # decoder
         self.decoder = SpatialDecoder(num_channel, latent_dim)
@@ -244,16 +252,19 @@ class MetaDynamics(BaseModel):
     def time_modeling(self, T, z_0, z_c):
         N, V, C = z_0.shape
 
-        z_prev = z_0
-        z = []
-        for i in range(1, T):
-            z_t = self.propagation(z_prev, z_c)
-            z_prev = z_t
-            z_t = z_t.view(1, N, V, C)
-            z.append(z_t)
-        z = torch.cat(z, dim=0)
-        z_0 = z_0.view(1, N, V, C)
-        z = torch.cat([z_0, z], dim=0)
+        if self.trans_model in ['recurrent',]:
+            z_prev = z_0
+            z = []
+            for i in range(1, T):
+                z_t = self.propagation(z_prev, z_c)
+                z_prev = z_t
+                z_t = z_t.view(1, N, V, C)
+                z.append(z_t)
+            z = torch.cat(z, dim=0)
+            z_0 = z_0.view(1, N, V, C)
+            z = torch.cat([z_0, z], dim=0)
+        elif self.trans_model in ['ODE',]:
+            z = self.propagation(T, z_0, z_c)
         z = z.permute(1, 2, 3, 0).contiguous()
 
         return z

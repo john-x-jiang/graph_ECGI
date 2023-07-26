@@ -9,7 +9,7 @@ from torch import nn
 import torch.nn.init as weight_init
 from torch.nn import functional as F
 from torch.autograd import Variable
-import torchdiffeq
+from torchdiffeq import odeint
 
 from torch_geometric.nn.inits import uniform
 from torch_geometric.loader import DataLoader
@@ -681,8 +681,8 @@ class SpatialDecoder(nn.Module):
         return x
 
 
-class Transition(nn.Module):
-    def __init__(self, z_dim, transition_dim, identity_init=True, stochastic=True):
+class Transition_Recurrent(nn.Module):
+    def __init__(self, z_dim, transition_dim, identity_init=True, stochastic=False):
         super().__init__()
         self.z_dim = z_dim
         self.transition_dim = transition_dim
@@ -733,6 +733,70 @@ class Transition(nn.Module):
             return mu, var
         else:
             return mu
+
+
+class Transition_ODE(nn.Module):
+    def __init__(self, latent_dim, transition_dim, num_layers=2, act_func='swish', domain=False):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.transition_dim = transition_dim
+        self.num_layers = num_layers
+        self.act_func = act_func
+        self.domain = domain
+
+        if domain:
+            self.combine = nn.Linear(2 * latent_dim, latent_dim)
+            self.layers_dim = [2 * latent_dim] + num_layers * [transition_dim] + [latent_dim]
+        else:
+            self.layers_dim = [latent_dim] + num_layers * [transition_dim] + [latent_dim]
+        
+        self.layers, self.acts = [], []
+        for i, (n_in, n_out) in enumerate(zip(self.layers_dim[:-1], self.layers_dim[1:])):
+            self.acts.append(get_act(act_func) if i < num_layers else get_act('linear')) # TODO: change the last layer to tanh if this one does not work
+            self.layers.append(nn.Linear(n_in, n_out, device=device))
+        
+    def ode_solver(self, t, x):
+        if self.domain:
+            x = torch.cat([x, self.embedding], dim=2)
+        for a, layer in zip(self.acts, self.layers):
+            x = a(layer(x))
+        return x
+    
+    def forward(self, T, z_0, z_c=None):
+        B = z_0.shape[0]
+        t = torch.linspace(0, T - 1, T).to(device)
+        solver = lambda t, x: self.ode_solver(t, x)
+    
+        self.embedding = z_c
+        
+        zt = odeint(solver, z_0, t, method='rk4', options={'step_size': 0.25})
+        return zt
+
+
+def get_act(act="relu"):
+    """
+    Return torch function of a given activation function
+    :param act: activation function
+    :return: torch object
+    """
+    if act == "relu":
+        return nn.ReLU()
+    elif act == "leaky_relu":
+        return nn.LeakyReLU()
+    elif act == "sigmoid":
+        return nn.Sigmoid()
+    elif act == "tanh":
+        return nn.Tanh()
+    elif act == "linear":
+        return nn.Identity()
+    elif act == 'softplus':
+        return nn.modules.activation.Softplus()
+    elif act == 'softmax':
+        return nn.Softmax()
+    elif act == "swish":
+        return nn.SiLU()
+    else:
+        return None
 
 
 def expand(batch_size, num_nodes, T, edge_index, edge_attr, sample_rate=None):

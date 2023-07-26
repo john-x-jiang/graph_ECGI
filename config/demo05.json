@@ -1,6 +1,6 @@
 {
     "exp_name": "demo",
-    "exp_id": "03",
+    "exp_id": "05",
     
     "model": {
         "type": "MetaDynamics",
@@ -15,14 +15,16 @@
                 256
             ],
             "latent_dim": 64,
-            "obs_dim": 55,
+            "obs_dim": 96,
             "init_dim": 5,
             "rnn_type": "gcgru",
-            "trans_model": "recurrent",
+            "trans_model": "ODE",
             "trans_args": {
-                "z_dim": 64,
+                "latent_dim": 64,
                 "transition_dim": 64,
-                "stochastic": false
+                "num_layers": 1,
+                "act_func": "swish",
+                "domain": true
             }
         }
     },
@@ -84,7 +86,7 @@
         "save_period": 20,
         "signal_source": "heart",
         "omit": 5,
-        "window": 60,
+        "window": 101,
         "k_shot": 5,
         "changable": true,
 
@@ -109,7 +111,7 @@
         "signal_source": "heart",
         "torso_len": 120,
         "omit": 5,
-        "window": 60,
+        "window": 101,
         "k_shot": 5,
         "changable": false
     },
