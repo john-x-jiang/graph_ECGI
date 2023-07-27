@@ -752,7 +752,7 @@ class Transition_ODE(nn.Module):
         
         self.layers, self.acts = [], []
         for i, (n_in, n_out) in enumerate(zip(self.layers_dim[:-1], self.layers_dim[1:])):
-            self.acts.append(get_act(act_func) if i < num_layers else get_act('linear')) # TODO: change the last layer to tanh if this one does not work
+            self.acts.append(get_act(act_func) if i < num_layers else get_act('tanh'))
             self.layers.append(nn.Linear(n_in, n_out, device=device))
         
     def ode_solver(self, t, x):
@@ -781,6 +781,8 @@ def get_act(act="relu"):
     """
     if act == "relu":
         return nn.ReLU()
+    elif act == "elu":
+        return nn.ELU()
     elif act == "leaky_relu":
         return nn.LeakyReLU()
     elif act == "sigmoid":
