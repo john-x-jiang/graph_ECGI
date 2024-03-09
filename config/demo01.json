@@ -3,7 +3,7 @@
     "exp_id": "01",
     
     "model": {
-        "type": "ST_GCNN",
+        "type": "ST_GCNN_HeartOnly",
         "args": {
             "num_filters": [
                 1,
@@ -29,7 +29,7 @@
     "data":{
         "data_set": "HeartDataLoader",
         "data_dir": "data/",
-        "data_names": ["EC_set2"],
+        "data_names": ["EC"],
         "signal_type": "egm",
         "num_meshes": [568],
         "seq_len": 101,
@@ -54,7 +54,7 @@
     },
     "lr_scheduler": 0,
 
-    "loss": "mse_loss",
+    "loss": "recon_loss",
     "metrics": [
         "mse", "tcc", "scc"
     ],
