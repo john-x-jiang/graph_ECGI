@@ -2,17 +2,10 @@ import torch
 import torch.nn as nn
 
 
-def mse_loss(x_, x, reduction='sum'):
-    mse = nn.MSELoss(reduction=reduction)(x_, x)
-    return mse
-
-
 def nll_loss(x_, x, reduction='none', loss_type='mse'):
     if loss_type == 'mse':
         return nn.MSELoss(reduction=reduction)(x_, x)
     elif loss_type == 'bce':
-        x = torch.sigmoid(x)
-        x_ = torch.sigmoid(x_)
         return nn.BCELoss(reduction=reduction)(x_, x)
     elif loss_type == 'bce_with_logits':
         x = torch.sigmoid(x)
@@ -40,29 +33,14 @@ def kl_div_stn(mu, logvar):
     )
 
 
-def recon_loss(x_, x):
+def recon_loss(x_, x, loss_type='mse'):
     B, T = x.shape[0], x.shape[-1]
-    nll_raw_0 = mse_loss(x_[:, :, 0], x[:, :, 0], 'none')
-    nll_raw = mse_loss(x_[:, :, 1:], x[:, :, 1:], 'none')
+    nll_raw = nll_loss(x_, x, 'none', loss_type)
+    nll_m = nll_raw[:, :, :].sum() / (B * T)
 
-    nll_m_0 = nll_raw_0.sum() / B
-    nll_m = nll_raw.sum() / (B * (T - 1))
+    total = nll_m
 
-    total = nll_m_0 + nll_m
-    return total
-
-
-def dmm_loss(x, x_, mu, logvar, kl_annealing_factor=1):
-    B, T = x.shape[0], x.shape[-1]
-    nll_raw = mse_loss(x_, x[:, :, :T], 'none')
-    nll_m = nll_raw.sum() / B
-
-    kl_raw = kl_div_stn(mu, logvar)
-    kl_m = kl_raw.sum() / B
-
-    loss = kl_m * kl_annealing_factor + nll_m
-
-    return kl_m, nll_m, loss
+    return total, {'likelihood': nll_m}
 
 
 def meta_loss(x_, x, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_annealing_factor=1, loss_type='mse', r1=1, r2=0, r3=1, l=1):

@@ -16,11 +16,10 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     train_loaders, valid_loaders, loss, metrics, hparams, exp_dir):
-    train_loss, val_loss = [], []
-
-    kl_t, kl_e = [], []
-    nll_t, nll_e = [], []
-    kl_0_t, kl_0_e = [], []
+    total_loss_t = []
+    total_loss_v = []
+    separate_loss_t = {}
+    separate_loss_v = {}
 
     train_config = dict(hparams.training)
     monitor_mode, monitor_metric = train_config['monitor'].split()
@@ -29,11 +28,9 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     not_improved_count = 0
 
     if checkpt is not None:
-        train_loss, val_loss = checkpt['train_loss'], checkpt['val_loss']
-
-        kl_t, kl_e = checkpt['kl_t'], checkpt['kl_e']
-        kl_0_t, kl_0_e = checkpt['kl_0_t'], checkpt['kl_0_e']
-        nll_t, nll_e = checkpt['nll_t'], checkpt['nll_e']
+        total_loss_t, total_loss_v = checkpt['train_loss'], checkpt['valid_loss']
+        separate_loss_t = checkpt['separate_loss_t']
+        separate_loss_v = checkpt['separate_loss_v']
 
         metric_err = checkpt.get('opt_metric_err')
         if metric_err is None:
@@ -43,31 +40,33 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     for epoch in range(epoch_start, train_config['epochs'] + 1):
         ts = time.time()
         # train epoch
-        total_loss_t, kl_loss_t, nll_loss_t, kl_0_loss_t = \
+        loss_t_epoch, separate_loss_t_epoch = \
             train_epoch(model, epoch, loss, optimizer, train_loaders, hparams)
         
         # valid epoch
-        total_loss_e, kl_loss_e, nll_loss_e, kl_0_loss_e = \
+        loss_v_epoch, separate_loss_v_epoch = \
             valid_epoch(model, epoch, loss, valid_loaders, hparams)
         te = time.time()
 
         # Append epoch losses to arrays
-        train_loss.append(total_loss_t)
-        val_loss.append(total_loss_e)
+        total_loss_t.append(loss_t_epoch)
+        for loss_name, loss_val in separate_loss_t_epoch.items():
+            if not separate_loss_t.get(loss_name):
+                separate_loss_t[loss_name] = []
+            separate_loss_t[loss_name].append(loss_val)
 
-        kl_t.append(kl_loss_t)
-        kl_e.append(kl_loss_e)
-        kl_0_t.append(kl_0_loss_t)
-        kl_0_e.append(kl_0_loss_e)
-        nll_t.append(nll_loss_t)
-        nll_e.append(nll_loss_e)
+        total_loss_v.append(loss_v_epoch)
+        for loss_name, loss_val in separate_loss_v_epoch.items():
+            if not separate_loss_v.get(loss_name):
+                separate_loss_v[loss_name] = []
+            separate_loss_v[loss_name].append(loss_val)
 
         # Step LR
         if lr_scheduler is not None:
             lr_scheduler.step()
             last_lr = lr_scheduler._last_lr
         else:
-            last_lr = 1
+            last_lr = optimizer.param_groups[0]['lr']
         
         # Generate the checkpoint for this current epoch
         log = {
@@ -75,18 +74,14 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             'epoch': epoch,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
-            'cur_learning_rate': last_lr,
             'not_improved_count': not_improved_count,
-            'train_loss': train_loss,
-            'val_loss': val_loss,
             'opt_metric_err': metric_err,
             
-            'kl_t': kl_t,
-            'kl_e': kl_e,
-            'kl_0_t': kl_0_t,
-            'kl_0_e': kl_0_e,
-            'nll_t': nll_t,
-            'nll_e': nll_e
+            'train_loss': total_loss_t,
+            'valid_loss': total_loss_v,
+            
+            'separate_loss_t': separate_loss_t,
+            'separate_loss_v': separate_loss_v,
         }
         
         # Save the latest model
@@ -97,11 +92,20 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             torch.save(log, exp_dir + '/m_' + str(epoch))
         
         # Print and write out epoch logs
-        logs = '[Epoch: {:04d}, Time: {:.4f}], train_loss: {:05.5f}, valid_loss: {:05.5f}'.format(
-            epoch, (te - ts) / 60, total_loss_t, total_loss_e)
-        print(logs)
+        summary_log = '[Epoch: {:04d}, Time: {:.4f}]'.format(epoch, (te - ts) / 60)
+        
+        metric_logs = 'train_loss: {:05.5f}'.format(loss_t_epoch)
+        for loss_name, loss_val in separate_loss_t_epoch.items():
+            metric_logs += ', {}: {:05.5f}'.format(loss_name, loss_val)
+        metric_logs += '\nvalid_loss: {:05.5f}'.format(loss_v_epoch)
+        for loss_name, loss_val in separate_loss_v_epoch.items():
+            metric_logs += ', {}: {:05.5f}'.format(loss_name, loss_val)
+        
+        print(summary_log)
+        print(metric_logs)
         with open(os.path.join(exp_dir, 'log.txt'), 'a+') as f:
-            f.write(logs + '\n')
+            f.write(summary_log + '\n')
+            f.write(metric_logs + '\n')
         
         # Check if current epoch is better than best so far
         if epoch == 1:
@@ -123,32 +127,22 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
         
     # save & plot losses
     losses = {
-        'loss_total': [
-            train_loss,
-            val_loss
+        'total': [
+            total_loss_t,
+            total_loss_v
         ],
-        'kl': [
-            kl_t,
-            kl_e
-        ],
-        'kl_0': [
-            kl_0_t,
-            kl_0_e
-        ],
-        'nll': [
-            nll_t,
-            nll_e
-        ]
     }
+    for loss_name in train_config['loss_to_plot']:
+        losses[loss_name] = [separate_loss_t[loss_name], separate_loss_v[loss_name]]
     save_losses(exp_dir, train_config['epochs'], losses)
 
 
 def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
     model.train()
     train_config = dict(hparams.training)
-    kl_args = train_config['kl_args']
-    torso_len = train_config['torso_len']
-    signal_source = train_config['signal_source']
+    kl_args = train_config.get('kl_args')
+    torso_len = train_config.get('torso_len')
+    signal_source = train_config.get('signal_source')
     omit = train_config.get('omit')
     window = train_config.get('window')
     k_shot = train_config.get('k_shot')
@@ -157,8 +151,7 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
     loss_type = train_config.get('loss_type')
     loss_func = hparams.loss
     total_loss = 0
-    kl_loss, nll_loss = 0, 0
-    kl_0_loss = 0
+    separate_losses = {}
     n_steps = 0
     batch_size = hparams.batch_size
 
@@ -195,7 +188,6 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             r_kl = kl_args['lambda']
             kl_factor = kl_annealing_factor * r_kl
             
-            # physics_vars, statistic_vars = model(source, data_name)
             if k_shot is None:
                 physics_vars, statistic_vars = model(source, data_name)
             else:
@@ -226,15 +218,13 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
 
                 physics_vars, statistic_vars = model(source, label, D_source, D_y, data_name)
             
-            if loss_func == 'dmm_loss':
-                x_, _ = physics_vars
-                mu, logvar = statistic_vars
+            if loss_func == 'recon_loss':
+                x_ = physics_vars[0]
 
-                kl, nll, total = \
-                    loss(output, x_, mu, logvar, kl_factor)
-            elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
-                x_, _ = physics_vars
-                total = loss(x_, output)
+                if loss_type is None:
+                    loss_type = 'mse'
+                
+                total, separate_terms = loss(x_, output, loss_type)
             elif loss_func == 'meta_loss':
                 x_ = physics_vars[0]
                 mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0 = statistic_vars
@@ -253,27 +243,23 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
                 if r3 is None:
                     r3 = 1
                 
-                kl, nll, kl_0, total = \
+                total, separate_terms = \
                     loss(x_, output, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
             elif loss_func == 'elbo_loss':
                 mu_x, logvar_x = physics_vars
                 mu_z, logvar_z = statistic_vars
 
-                kl, nll, total = loss(mu_x, logvar_x, output, mu_z, logvar_z, kl_factor)
+                total, separate_terms = loss(mu_x, logvar_x, output, mu_z, logvar_z, kl_factor)
             else:
                 raise NotImplemented
 
             total.backward()
 
             total_loss += total.item()
-            if loss_func == 'dmm_loss':
-                kl_loss += kl.item()
-                nll_loss += nll.item()
-            elif loss_func == 'elbo_loss':
-                kl_loss += kl.item()
-                nll_loss += nll.item()
-            elif loss_func == 'meta_loss':
-                kl_0_loss += kl_0.item()
+            for loss_name, loss_val in separate_terms.items():
+                if not separate_losses.get(loss_name):
+                    separate_losses[loss_name] = 0
+                separate_losses[loss_name] += loss_val.item()
             n_steps += 1
 
             optimizer.step()
@@ -281,19 +267,18 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             util.inline_print(logs)
 
     total_loss /= n_steps
-    kl_loss /= n_steps
-    kl_0_loss /= n_steps
-    nll_loss /= n_steps
+    for loss_name, loss_val in separate_losses.items():
+        separate_losses[loss_name] /= n_steps
 
-    return total_loss, kl_loss, nll_loss, kl_0_loss
+    return total_loss, separate_losses
 
 
 def valid_epoch(model, epoch, loss, data_loaders, hparams):
     model.eval()
     train_config = dict(hparams.training)
-    kl_args = train_config['kl_args']
-    torso_len = train_config['torso_len']
-    signal_source = train_config['signal_source']
+    kl_args = train_config.get('kl_args')
+    torso_len = train_config.get('torso_len')
+    signal_source = train_config.get('signal_source')
     omit = train_config.get('omit')
     window = train_config.get('window')
     k_shot = train_config.get('k_shot')
@@ -302,8 +287,7 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
     loss_type = train_config.get('loss_type')
     loss_func = hparams.loss
     total_loss = 0
-    kl_loss, nll_loss = 0, 0
-    kl_0_loss = 0
+    separate_losses = {}
     n_steps = 0
     batch_size = hparams.batch_size
 
@@ -364,15 +348,9 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
 
                     physics_vars, statistic_vars = model(source, label, D_source, D_y, data_name)
                 
-                if loss_func == 'dmm_loss':
+                if loss_func == 'recon_loss':
                     x_, _ = physics_vars
-                    mu, logvar = statistic_vars
-
-                    kl, nll, total = \
-                        loss(output, x_, mu, logvar, kl_factor)
-                elif loss_func == 'recon_loss' or loss_func == 'mse_loss':
-                    x_, _ = physics_vars
-                    total = loss(x_, output)
+                    total, separate_terms = loss(x_, output)
                 elif loss_func == 'meta_loss':
                     x_ = physics_vars[0]
                     mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0 = statistic_vars
@@ -391,33 +369,28 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                     if r3 is None:
                         r3 = 1
                     
-                    kl, nll, kl_0, total = \
+                    total, separate_terms = \
                         loss(x_, output, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
                 elif loss_func == 'elbo_loss':
                     mu_x, logvar_x = physics_vars
                     mu_z, logvar_z = statistic_vars
 
-                    kl, nll, total = loss(mu_x, logvar_x, output, mu_z, logvar_z, kl_factor)
+                    total, separate_terms = loss(mu_x, logvar_x, output, mu_z, logvar_z, kl_factor)
                 else:
                     raise NotImplemented
 
                 total_loss += total.item()
-                if loss_func == 'dmm_loss':
-                    kl_loss += kl.item()
-                    nll_loss += nll.item()
-                elif loss_func == 'elbo_loss':
-                    kl_loss += kl.item()
-                    nll_loss += nll.item()
-                elif loss_func == 'meta_loss':
-                    kl_0_loss += kl_0.item()
+                for loss_name, loss_val in separate_terms.items():
+                    if not separate_losses.get(loss_name):
+                        separate_losses[loss_name] = 0
+                    separate_losses[loss_name] += loss_val.item()
                 n_steps += 1
 
     total_loss /= n_steps
-    kl_loss /= n_steps
-    kl_0_loss /= n_steps
-    nll_loss /= n_steps
+    for loss_name, loss_val in separate_losses.items():
+        separate_losses[loss_name] /= n_steps
 
-    return total_loss, kl_loss, nll_loss, kl_0_loss
+    return total_loss, separate_losses
 
 
 def determine_annealing_factor(min_anneal_factor,

@@ -79,7 +79,7 @@ class EuclideanModel(BaseModel):
         return (muTheta, logvarTheta), (mu, logvar)
 
 
-class ST_GCNN_ECGI(BaseModel):
+class ST_GCNN_TorsoHeart(BaseModel):
     def __init__(self, 
                  num_filters,
                  len_seq,
@@ -135,7 +135,7 @@ class ST_GCNN_ECGI(BaseModel):
         return (x, None), None
 
 
-class ST_GCNN(BaseModel):
+class ST_GCNN_HeartOnly(BaseModel):
     def __init__(self,
                  num_filters,
                  len_seq,

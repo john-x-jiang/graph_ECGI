@@ -120,7 +120,6 @@ class HeartEpisodicDataset(Dataset):
         label = label.astype(int)
         self.label = torch.from_numpy(label[index])
         self.data = torch.from_numpy(dataset[index, :, :]).float()
-        # self.corMfree = corMfree
         # self.mask = mask
         self.heart_name = data_name
 

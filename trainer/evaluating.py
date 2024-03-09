@@ -30,7 +30,6 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tags, ev
     data_scaler = eval_config.get('data_scaler')
     model.eval()
     n_data = 0
-    data_idx = 0
     total_time = 0
     mses = dict()
     tccs = dict()
@@ -118,7 +117,6 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tags, ev
                                     (sccs['{}_{}'.format(data_name, eval_tag)], scc), 
                                     axis=0
                                     )
-                    # data_idx += 1
 
                 if eval_tag in data_tags:
                     save_result(exp_dir, recons, grnths, labels, data_name, eval_tag)
@@ -149,7 +147,6 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
     data_scaler = eval_config.get('data_scaler')
     model.eval()
     n_data = 0
-    data_idx = 0
     total_time = 0
     mses = None
     tccs = None
@@ -255,7 +252,7 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
                             mse = met(x_, qry_output)
                             mse = mse.mean([1, 2])
                             mse = tensor2np(mse)
-                            if data_idx == 0:
+                            if idx == 0:
                                 mses['{}_{}'.format(data_name, qry_tag)] = mse
                             else:
                                 mses['{}_{}'.format(data_name, qry_tag)] = np.concatenate(
@@ -267,7 +264,7 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
                                 qry_output = tensor2np(qry_output)
                                 x_ = tensor2np(x_)
                             tcc = met(x_, qry_output)
-                            if data_idx == 0:
+                            if idx == 0:
                                 tccs['{}_{}'.format(data_name, qry_tag)] = tcc
                             else:
                                 tccs['{}_{}'.format(data_name, qry_tag)] = np.concatenate(
@@ -279,14 +276,13 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
                                 qry_output = tensor2np(qry_output)
                                 x_ = tensor2np(x_)
                             scc = met(x_, qry_output)
-                            if data_idx == 0:
+                            if idx == 0:
                                 sccs['{}_{}'.format(data_name, qry_tag)] = scc
                             else:
                                 sccs['{}_{}'.format(data_name, qry_tag)] = np.concatenate(
                                     (sccs['{}_{}'.format(data_name, qry_tag)], scc), 
                                     axis=0
                                     )
-                    data_idx += 1
 
                 if qry_tag in data_tags:
                     save_result(exp_dir, recons, grnths, labels, data_name, qry_tag)
@@ -320,6 +316,7 @@ def print_results(exp_dir, met_name, mets):
     print('Summary: {} for full seq avg = {:05.5f}, std = {:05.5f}'.format(met_name, met.mean(), met.std()))
     with open(os.path.join(exp_dir, 'data/metric.txt'), 'a+') as f:
         f.write('Summary: {} for full seq avg = {}, std = {}\n'.format(met_name, met.mean(), met.std()))
+
 
 def save_result(exp_dir, recons, grnths, labels, data_name, data_tag):
     if not os.path.exists(exp_dir + '/data'):

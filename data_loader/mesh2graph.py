@@ -28,13 +28,12 @@ class GraphPyramid():
         K: K in KNN for defining edge connectivity in the graph
     """
 
-    def __init__(self, heart='case3', structure='EC', num_mesh=1230, seq_len=201, graph_method='bipartite', K=6):
+    def __init__(self, heart='EC', structure='EC', num_mesh=1230, seq_len=201, graph_method='bipartite'):
         """
         """
         self.path_in = osp.join(osp.dirname(osp.realpath('__file__')), 'data', 'signal', heart)
         self.method = graph_method
         self.path_structure = osp.join(osp.dirname(osp.realpath('__file__')), 'data', 'structure', structure)
-        self.pre_transform = T.KNNGraph(k=K)
         self.transform = T.Cartesian(cat=False)
         self.filename = osp.join(self.path_in, heart)
         self.heart_name = structure
@@ -77,11 +76,11 @@ class GraphPyramid():
     def cluster_mesh(self, g, cluster, cor, edge_index):
         m = len(cor)
         n = len(cluster)
-        P = np.zeros((n, m))
-        for i in range(n):
-            j = cluster[i] - 1
-            P[i, j] = 1
-        # P = cluster
+        # P = np.zeros((n, m))
+        # for i in range(n):
+        #     j = cluster[i] - 1
+        #     P[i, j] = 1
+        P = cluster
         
         Pn = P / P.sum(axis=0)
         PnT = torch.from_numpy(np.transpose(Pn)).float()
@@ -96,64 +95,6 @@ class GraphPyramid():
         g_coarse = Data(x=x, y=g.y, pos=cor, edge_index=edge_index)
         g_coarse = self.transform(g_coarse)
         return P, g_coarse
-
-
-    # def clus_heart(self, d, method='graclus'):
-    #     """Use graph clustering method to make a hierarchy of coarser-finer graphs
-        
-    #     Args:
-    #         method: graph clustering method to use (options: graclus or voxel)
-    #         d: a instance of Data class (a graph object)
-        
-    #     Output:
-    #         P: transformation matrix from coarser to finer scale
-    #         d_coarser: graph for the coarser scale
-    #     """
-    #     # clustering
-    #     if (method == 'graclus'):
-    #         weight = self.normalized_cut_2d(d.edge_index, d.pos)
-    #         cluster = graclus(d.edge_index, weight, d.x.size(0))
-    #     elif (method == 'voxel'):
-    #         cluster = voxel_grid(d.pos, torch.tensor(np.zeros(d.pos.shape[0])), size=10)
-    #     else:
-    #         print('this clustering method has not been implemented')
-
-    #     # get clusters assignments with consequitive numbers
-    #     cluster, perm = self.consecutive_cluster(cluster)
-    #     unique_cluster = np.unique(cluster)
-    #     n, m = cluster.shape[0], unique_cluster.shape[0]  # num nodes, num clusters
-
-    #     # transformaiton matrix that consists of num_nodes X num_clusters
-    #     P = np.zeros((n, m))
-    #     # P_{ij} = 1 if ith node in the original cluster was merged to jth node in coarser scale
-    #     for j in range(m):
-    #         i = np.where(cluster == int(unique_cluster[j]))
-    #         P[i, j] = 1
-    #     Pn = P / P.sum(axis=0)  # column normalize P
-    #     PnT = torch.from_numpy(np.transpose(Pn)).float()  # PnT tranpose
-    #     # the coarser scale features =  Pn^T*features
-    #     # this is done for verification purpose only
-    #     m, _, s = d.x.shape
-    #     x = d.x.view(m, s)
-    #     x = torch.mm(PnT, x)  # downsampled features
-    #     pos = torch.mm(PnT, d.pos)  # downsampled coordinates (vertices)
-    #     x = x.view(-1, 1, s)
-
-    #     # convert into a new object of data class (graphical format)
-    #     d_coarser = Data(x=x, pos=pos, y=d.y)
-    #     d_coarser = self.pre_transform(d_coarser)
-    #     d_coarser = self.transform(d_coarser)
-    #     return P, d_coarser
-
-    def consecutive_cluster(self, src):
-        """
-        Args:
-            src: cluster
-        """
-        unique, inv = torch.unique(src, sorted=True, return_inverse=True)
-        perm = torch.arange(inv.size(0), dtype=inv.dtype, device=inv.device)
-        perm = inv.new_empty(unique.size(0)).scatter_(0, inv, perm)
-        return inv, perm
     
     def get_embeddings(self, g, heart_name, index, is_heart=True):
         if is_heart:
@@ -166,10 +107,10 @@ class GraphPyramid():
         edge_index = self.face2edge(face)
         P, g_coarse = copy.deepcopy(self.cluster_mesh(g, cluster, cor, edge_index))
 
-        # if is_heart:
-        #     self.save_connection(g_coarse, name='h{}'.format(index), face=face)
-        # else:
-        #     self.save_connection(g_coarse, name='t{}'.format(index), face=face)
+        if is_heart:
+            self.save_connection(g_coarse, name='h{}'.format(index), face=face)
+        else:
+            self.save_connection(g_coarse, name='t{}'.format(index), face=face)
 
         return P, g_coarse
     
