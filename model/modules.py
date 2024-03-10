@@ -1247,21 +1247,22 @@ def load_graph(filename, load_torso=0, graph_method=None):
             t_g, t_g1, t_g2, t_g3, t_P01, t_P12, t_P23, Hs, Ps
 
 
-def get_params(data_path, heart_name, batch_size, load_torso=0, graph_method=None):
-    # # Load physics parameters
-    # physics_name = heart_name.split('_')[0]
-    # physics_dir = os.path.join(data_path, 'physics/{}/'.format(physics_name))
-    # mat_files = scipy.io.loadmat(os.path.join(physics_dir, 'h_L.mat'), squeeze_me=True, struct_as_record=False)
-    # L = mat_files['h_L']
+def get_params(data_path, heart_name, batch_size, load_torso=0, load_physics=0, graph_method=None):
+    if load_physics == 1:
+        # Load physics parameters
+        physics_name = heart_name.split('_')[0]
+        physics_dir = os.path.join(data_path, 'physics/{}/'.format(physics_name))
+        mat_files = scipy.io.loadmat(os.path.join(physics_dir, 'h_L.mat'), squeeze_me=True, struct_as_record=False)
+        L = mat_files['h_L']
 
-    # mat_files = scipy.io.loadmat(os.path.join(physics_dir, 'H.mat'), squeeze_me=True, struct_as_record=False)
-    # H = mat_files['H']
+        mat_files = scipy.io.loadmat(os.path.join(physics_dir, 'H.mat'), squeeze_me=True, struct_as_record=False)
+        H = mat_files['H']
 
-    # L = torch.from_numpy(L).float().to(device)
-    # print('Load Laplacian: {} x {}'.format(L.shape[0], L.shape[1]))
+        L = torch.from_numpy(L).float().to(device)
+        print('Load Laplacian: {} x {}'.format(L.shape[0], L.shape[1]))
 
-    # H = torch.from_numpy(H).float().to(device)
-    # print('Load H matrix: {} x {}'.format(H.shape[0], H.shape[1]))
+        H = torch.from_numpy(H).float().to(device)
+        print('Load H matrix: {} x {}'.format(H.shape[0], H.shape[1]))
 
     # Load geometrical parameters
     graph_file = os.path.join(data_path, 'signal/{}/{}_{}'.format(heart_name, heart_name, graph_method))
@@ -1363,16 +1364,27 @@ def get_params(data_path, heart_name, batch_size, load_torso=0, graph_method=Non
             H_inv = H_inv.to(device)
             Ps = Ps.to(device)
 
-            params = {
-                "bg1": bg1, "bg2": bg2, "bg3": bg3, "bg4": bg4,
-                "P10": P10, "P21": P21, "P32": P32, "P43": P43,
-                "num_nodes": num_nodes, "g": g, "bg": bg,
-                "t_bg1": t_bg1, "t_bg2": t_bg2, "t_bg3": t_bg3,
-                "t_P01": t_P01, "t_P12": t_P12, "t_P23": t_P23,
-                "t_num_nodes": t_num_nodes, "t_g": t_g, "t_bg": t_bg,
-                "H_inv": H_inv, "P": Ps,
-                # "H": H, "L": L
-            }
+            if load_physics == 1:
+                params = {
+                    "bg1": bg1, "bg2": bg2, "bg3": bg3, "bg4": bg4,
+                    "P10": P10, "P21": P21, "P32": P32, "P43": P43,
+                    "num_nodes": num_nodes, "g": g, "bg": bg,
+                    "t_bg1": t_bg1, "t_bg2": t_bg2, "t_bg3": t_bg3,
+                    "t_P01": t_P01, "t_P12": t_P12, "t_P23": t_P23,
+                    "t_num_nodes": t_num_nodes, "t_g": t_g, "t_bg": t_bg,
+                    "H_inv": H_inv, "P": Ps,
+                    "H": H, "L": L
+                }
+            else:
+                params = {
+                    "bg1": bg1, "bg2": bg2, "bg3": bg3, "bg4": bg4,
+                    "P10": P10, "P21": P21, "P32": P32, "P43": P43,
+                    "num_nodes": num_nodes, "g": g, "bg": bg,
+                    "t_bg1": t_bg1, "t_bg2": t_bg2, "t_bg3": t_bg3,
+                    "t_P01": t_P01, "t_P12": t_P12, "t_P23": t_P23,
+                    "t_num_nodes": t_num_nodes, "t_g": t_g, "t_bg": t_bg,
+                    "H_inv": H_inv, "P": Ps
+                }
         else:
             raise NotImplementedError
 

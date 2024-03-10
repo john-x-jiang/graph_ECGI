@@ -41,7 +41,7 @@ class EuclideanModel(BaseModel):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
     
-    def setup(self, heart_name, data_path, batch_size, load_torso, graph_method):
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
         pass
     
     def encode(self, x):
@@ -99,8 +99,8 @@ class ST_GCNN_TorsoHeart(BaseModel):
         self.H_inv = dict()
         self.P = dict()
     
-    def setup(self, heart_name, data_path, batch_size, ecgi, graph_method):
-        params = get_params(data_path, heart_name, batch_size, ecgi, graph_method)
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)
         self.H_inv[heart_name] = params["H_inv"]
         self.P[heart_name] = params["P"]
 
@@ -152,8 +152,8 @@ class ST_GCNN_HeartOnly(BaseModel):
 
         # TODO: add necessary nn modules for latent modeling below
     
-    def setup(self, heart_name, data_path, batch_size, load_torso, graph_method):
-        params = get_params(data_path, heart_name, batch_size, load_torso, graph_method)
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)
         self.encoder.setup(heart_name, params)
         self.decoder.setup(heart_name, params)
     
@@ -213,8 +213,8 @@ class MetaDynamics(BaseModel):
         # decoder
         self.decoder = SpatialDecoder(num_channel, latent_dim)
 
-    def setup(self, heart_name, data_path, batch_size, ecgi, graph_method):
-        params = get_params(data_path, heart_name, batch_size, ecgi, graph_method)        
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)        
         self.domain.setup(heart_name, params)
         self.initial.setup(heart_name, params)
         self.decoder.setup(heart_name, params)
@@ -357,8 +357,8 @@ class MetaDynamics_MaskIn(BaseModel):
         self.bg3 = dict()
         self.bg4 = dict()
 
-    def setup(self, heart_name, data_path, batch_size, ecgi, graph_method):
-        params = get_params(data_path, heart_name, batch_size, ecgi, graph_method)
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)
         self.bg[heart_name] = params["bg"]
         self.bg1[heart_name] = params["bg1"]
         self.bg2[heart_name] = params["bg2"]
@@ -400,23 +400,6 @@ class MetaDynamics_MaskIn(BaseModel):
         
         return z_0
     
-    # def time_modeling(self, T, z_0, z_c):
-    #     N, V, C = z_0.shape
-
-    #     z_prev = z_0
-    #     z = []
-    #     for i in range(1, T):
-    #         z_t = self.propagation(z_prev, z_c)
-    #         z_prev = z_t
-    #         z_t = z_t.view(1, N, V, C)
-    #         z.append(z_t)
-    #     z = torch.cat(z, dim=0)
-    #     z_0 = z_0.view(1, N, V, C)
-    #     z = torch.cat([z_0, z], dim=0)
-    #     z = z.permute(1, 2, 3, 0).contiguous()
-
-    #     return z
-
     def time_modeling(self, T, z_0, z_c):
         N, V, C = z_0.shape
 

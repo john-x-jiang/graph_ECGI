@@ -148,9 +148,9 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
     model.eval()
     n_data = 0
     total_time = 0
-    mses = None
-    tccs = None
-    sccs = None
+    mses = dict()
+    tccs = dict()
+    sccs = dict()
 
     with torch.no_grad():
         data_names = list(qry_data_loaders.keys())

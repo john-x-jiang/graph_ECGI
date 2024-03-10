@@ -237,8 +237,9 @@ def prediction(hparams, eval_loaders, pred_loaders, exp_dir, data_tags):
     data_dir = os.path.join(osp.dirname(osp.realpath('__file__')), hparams.data['data_dir'])
     batch_size = hparams.batch_size
     load_torso = hparams.load_torso
+    load_physics = hparams.load_physics
     for data_name in hparams.data['data_names']:
-        model.setup(data_name, data_dir, batch_size, load_torso, graph_method)
+        model.setup(data_name, data_dir, batch_size, load_torso, load_physics, graph_method)
 
     model.to(device)
     checkpt = torch.load(exp_dir + '/' + hparams.best_model, map_location=device)
