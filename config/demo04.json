@@ -61,6 +61,7 @@
 
     "batch_size": 8,
     "load_torso": 1,
+    "load_physics": 0,
     "device": 0,
     "training": {
         "epochs": 500,
