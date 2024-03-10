@@ -197,24 +197,16 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
                         qry_source = qry_x_torso
                         qry_output = qry_x_heart
 
-                    spt_signal, spt_label = spt_data.x, spt_data.y
-                    spt_signal = spt_signal.to(device)
-                    spt_label = spt_label.to(device)
-                    D_x = spt_data.D
-                    D_y = spt_data.D_label
+                    D_x = spt_data.D_x
+                    D_y = spt_data.D_y
                     D_x = D_x.to(device)
                     D_y = D_y.to(device)
 
                     if window is not None:
-                        spt_signal = spt_signal[:, :, :window]
                         D_x = D_x[:, :, :window]
                     
                     if data_scaler is not None:
-                        spt_signal = data_scaler * spt_signal
                         D_x = data_scaler * D_x
-                    
-                    spt_x_heart = spt_signal[:, :-torso_len, omit:]
-                    spt_x_torso = spt_signal[:, -torso_len:, omit:]
 
                     N, M, T = qry_signal.shape
                     D_x = D_x.view(N, -1, M ,T)
@@ -222,10 +214,8 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
                     D_x_torso = D_x[:, :, -torso_len:, omit:]
 
                     if signal_source == 'heart':
-                        spt_source = spt_x_heart
                         D_source = D_x_heart
                     elif signal_source == 'torso':
-                        spt_source = spt_x_torso
                         D_source = D_x_torso
                     
                     if changable:
@@ -234,7 +224,7 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
                         D_source = D_source[:, :sub_K, :]
                         D_y = D_y[:, :sub_K, :]
 
-                    physics_vars, statistic_vars = model.prediction(qry_source, spt_source, D_source, D_y, data_name)
+                    physics_vars, statistic_vars = model.prediction(qry_source, qry_label, D_source, D_y, data_name)
 
                     x_ = physics_vars[0]
 

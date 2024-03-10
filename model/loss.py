@@ -61,7 +61,25 @@ def meta_loss(x_, x, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_annealin
 
     total = kl_annealing_factor * (r1 * kl_m_c_t + r2 * kl_m_c + r3 * kl_m_0) + nll_m
 
-    return kl_m_c_t, nll_m, kl_m_0, total
+    return total, {'likelihood': nll_m, 'kl_domain': kl_m_c_t, 'kl_domain_reg': kl_m_c, 'kl_initial': kl_m_0}
+
+
+def meta_loss_with_mask(x_, x, mu_c, logvar_c, mu_t, logvar_t, kl_annealing_factor=1, loss_type='mse', r1=1, r2=0, l=1):
+    B, T = x.shape[0], x.shape[-1]
+    nll_raw = nll_loss(x_, x, 'none', loss_type)
+    nll_0 = nll_raw[:, :, 0].sum() / B
+    nll_r = nll_raw[:, :, 1:].sum() / B / (T - 1)
+    nll_m = T * (nll_0 * l + nll_r)
+
+    kl_raw_c_t = kl_div(mu_c, logvar_c, mu_t, logvar_t)
+    kl_m_c_t = kl_raw_c_t.sum() / B
+
+    kl_raw_c = kl_div_stn(mu_c, logvar_c)
+    kl_m_c = kl_raw_c.sum() / B
+
+    total = kl_annealing_factor * (r1 * kl_m_c_t + r2 * kl_m_c) + nll_m
+
+    return total, {'likelihood': nll_m, 'kl_domain': kl_m_c_t, 'kl_domain_reg': kl_m_c}
 
 
 def elbo_loss(muTheta, logvarTheta, x, mu, logvar, annealParam):
@@ -70,12 +88,12 @@ def elbo_loss(muTheta, logvarTheta, x, mu, logvar, annealParam):
     diffSq = (x - muTheta).pow(2)
     precis = torch.exp(-logvarTheta)
 
-    BCE = 0.5 * torch.sum(logvarTheta + torch.mul(diffSq,precis))
-    BCE /= (B * V * T)
+    nll_m = 0.5 * torch.sum(logvarTheta + torch.mul(diffSq,precis))
+    nll_m /= (B * V * T)
 
-    KLD = -0.5 * annealParam * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    KLD /= B * V_latent * T
+    kl_m = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    kl_m /= B * V_latent * T
 
-    loss = BCE + KLD
+    total = nll_m + annealParam * kl_m
 
-    return KLD, BCE, loss
+    return total, {'likelihood': nll_m, 'kl': kl_m}

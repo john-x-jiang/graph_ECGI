@@ -191,8 +191,8 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             if k_shot is None:
                 physics_vars, statistic_vars = model(source, data_name)
             else:
-                D_x = data.D
-                D_y = data.D_label
+                D_x = data.D_x
+                D_y = data.D_y
                 D_x = D_x.to(device)
                 D_y = D_y.to(device)
 
@@ -245,6 +245,23 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
                 
                 total, separate_terms = \
                     loss(x_, output, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
+            elif loss_func == 'meta_loss_with_mask':
+                x_ = physics_vars[0]
+                mu_c, logvar_c, mu_t, logvar_t = statistic_vars
+
+                if loss_type is None:
+                    loss_type = 'mse'
+                
+                r1 = train_config.get('r1')
+                r2 = train_config.get('r2')
+                l = train_config.get('l')
+                if r1 is None:
+                    r1 = 1
+                if r2 is None:
+                    r2 = 0
+                
+                total, separate_terms = \
+                    loss(x_, output, mu_c, logvar_c, mu_t, logvar_t, kl_factor, loss_type, r1, r2, l)
             elif loss_func == 'elbo_loss':
                 mu_x, logvar_x = physics_vars
                 mu_z, logvar_z = statistic_vars
@@ -322,8 +339,8 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                 if k_shot is None:
                     physics_vars, statistic_vars = model(source, data_name)
                 else:
-                    D_x = data.D
-                    D_y = data.D_label
+                    D_x = data.D_x
+                    D_y = data.D_y
                     D_x = D_x.to(device)
                     D_y = D_y.to(device)
 
@@ -371,6 +388,23 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                     
                     total, separate_terms = \
                         loss(x_, output, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_factor, loss_type, r1, r2, r3, l)
+                elif loss_func == 'meta_loss_with_mask':
+                    x_ = physics_vars[0]
+                    mu_c, logvar_c, mu_t, logvar_t = statistic_vars
+
+                    if loss_type is None:
+                        loss_type = 'mse'
+                    
+                    r1 = train_config.get('r1')
+                    r2 = train_config.get('r2')
+                    l = train_config.get('l')
+                    if r1 is None:
+                        r1 = 1
+                    if r2 is None:
+                        r2 = 0
+                    
+                    total, separate_terms = \
+                        loss(x_, output, mu_c, logvar_c, mu_t, logvar_t, kl_factor, loss_type, r1, r2, l)
                 elif loss_func == 'elbo_loss':
                     mu_x, logvar_x = physics_vars
                     mu_z, logvar_z = statistic_vars

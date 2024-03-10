@@ -9,14 +9,14 @@ from torch_geometric.data import Data
 
 
 class DataWithDomain(Data):
-    def __init__(self, x, y, pos, mask=None, D=None, D_label=None):
+    def __init__(self, x, y, pos, mask=None, D_x=None, D_y=None):
         super().__init__()
         self.x = x
         self.y = y
         self.pos = pos
         self.mask = mask
-        self.D = D
-        self.D_label = D_label
+        self.D_x = D_x
+        self.D_y = D_y
 
 
 class HeartGraphDataset(Dataset):
@@ -60,7 +60,6 @@ class HeartGraphDataset(Dataset):
         label = label.astype(int)
         self.label = torch.from_numpy(label[index])
         self.data = torch.from_numpy(dataset[index, :, :]).float()
-        # self.corMfree = corMfree
         self.heart_name = data_name
         print('final data size: {}'.format(self.data.shape[0]))
 
@@ -152,8 +151,8 @@ class HeartEpisodicDataset(Dataset):
             y=y,
             pos=self.heart_name,
             # mask=self.mask,
-            D=D_x,
-            D_label=D_y
+            D_x=D_x,
+            D_y=D_y
         )
         return sample
     
