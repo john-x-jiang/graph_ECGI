@@ -1,9 +1,9 @@
 {
     "exp_name": "demo",
-    "exp_id": "05",
+    "exp_id": "06",
     
     "model": {
-        "type": "MetaDynamics",
+        "type": "MetaDynamics_MaskIn",
         "args": {
             "num_channel": [
                 1,
@@ -15,15 +15,12 @@
                 256
             ],
             "latent_dim": 64,
-            "obs_dim": 96,
-            "init_dim": 5,
-            "trans_model": "ODE",
+            "obs_dim": 55,
+            "trans_model": "recurrent",
             "trans_args": {
-                "latent_dim": 64,
+                "z_dim": 64,
                 "transition_dim": 64,
-                "num_layers": 1,
-                "act_func": "swish",
-                "domain": true
+                "stochastic": false
             }
         }
     },
@@ -70,7 +67,7 @@
         }
     },
 
-    "loss": "meta_loss",
+    "loss": "meta_loss_with_mask",
     "metrics": [
         "mse", "tcc", "scc"
     ],
@@ -85,7 +82,7 @@
         "save_period": 20,
         "signal_source": "heart",
         "omit": 5,
-        "window": 101,
+        "window": 60,
         "k_shot": 5,
         "changable": true,
 
@@ -110,7 +107,7 @@
         "signal_source": "heart",
         "torso_len": 120,
         "omit": 5,
-        "window": 101,
+        "window": 60,
         "k_shot": 5,
         "changable": false
     },
