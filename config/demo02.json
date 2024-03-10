@@ -51,7 +51,7 @@
         "save_period": 20,
         "signal_source": "heart",
 
-        "monitor": "min val_loss",
+        "monitor": "min valid_loss",
         "early_stop": 100,
 
         "torso_len": 120,

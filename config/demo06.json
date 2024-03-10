@@ -86,7 +86,7 @@
         "k_shot": 5,
         "changable": true,
 
-        "monitor": "min val_loss",
+        "monitor": "min valid_loss",
         "early_stop": 100,
 
         "torso_len": 120,
