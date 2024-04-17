@@ -3,7 +3,7 @@ scikit-image
 matplotlib
 scikit-learn
 scipy
+h5py
 tqdm
-torch
 torchdiffeq
 ipdb
