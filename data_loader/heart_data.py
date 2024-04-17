@@ -9,14 +9,16 @@ from torch_geometric.data import Data
 
 
 class DataWithDomain(Data):
-    def __init__(self, x, y, pos, mask=None, D_x=None, D_y=None):
+    def __init__(self, x, y, label, pos, mask=None, D_x=None, D_y=None, D_label=None):
         super().__init__()
         self.x = x
         self.y = y
+        self.label = label
         self.pos = pos
         self.mask = mask
         self.D_x = D_x
         self.D_y = D_y
+        self.D_label = D_label
 
 
 class HeartGraphDataset(Dataset):
@@ -42,46 +44,57 @@ class HeartGraphDataset(Dataset):
         self.heart_name = data_name
         if self.file_versions[0] == 1:
             matFiles = scipy.io.loadmat(self.data_path, squeeze_me=True, struct_as_record=False)
-            dataset = matFiles['params']
+            xs = matFiles['sources']
+            ys = matFiles['measurements']
             label = matFiles['label']
 
-            dataset = dataset.transpose(2, 0, 1)
+            xs = xs.transpose(2, 0, 1)
+            ys = ys.transpose(2, 0, 1)
             label = label.astype(int)
+
             self.label = torch.from_numpy(label)
-            self.data = torch.from_numpy(dataset).float()
+            self.xs = torch.from_numpy(xs).float()
+            self.ys = torch.from_numpy(ys).float()
         elif self.file_versions[0] == 2:
             matFiles = h5py.File(self.data_path, 'r')
-            dataset = matFiles['params']
+            xs = matFiles['sources']
+            ys = matFiles['measurements']
             label = matFiles['label']
 
-            self.data = dataset
+            self.xs = xs
+            self.ys = ys
             self.label = label
         else:
             raise NotImplemented
         
-        print('final data size: {}'.format(self.data.shape[0]))
+        print('final data size: {}'.format(self.xs.shape[0]))
 
     def __len__(self):
-        return (self.data.shape[0])
+        return (self.xs.shape[0])
 
     def __getitem__(self, idx):
         if self.file_versions[0] == 1:
-            x = self.data[[idx], :, :]
-            y = self.label[[idx]]
+            x = self.xs[[idx], :, :]
+            y = self.ys[[idx], :, :]
+            label = self.label[[idx]]
         elif self.file_versions[0] == 2:
-            x = self.data[[idx], :, :]
-            y = self.label[:, [idx]]
+            x = self.xs[[idx], :, :]
+            y = self.ys[[idx], :, :]
+            label = self.label[:, [idx]]
 
             x = torch.from_numpy(x).float()
-            y = torch.from_numpy(y).int()
+            y = torch.from_numpy(y).float()
+            label = torch.from_numpy(label).int()
             x = x.permute(0, 2, 1).contiguous()
-            y = y.permute(1, 0).contiguous()
+            y = y.permute(0, 2, 1).contiguous()
+            label = label.permute(1, 0).contiguous()
         else:
             raise NotImplemented
         
         sample = Data(
             x=x,
             y=y,
+            label=label,
             pos=self.heart_name
         )
         return sample
@@ -110,21 +123,26 @@ class HeartEpisodicDataset(Dataset):
         self.heart_name = data_name
         if self.file_versions[0] == 1:
             matFiles = scipy.io.loadmat(self.data_path, squeeze_me=True, struct_as_record=False)
-            dataset = matFiles['params']
+            xs = matFiles['sources']
+            ys = matFiles['measurements']
             label = matFiles['label']
 
-            dataset = dataset.transpose(2, 0, 1)
+            xs = xs.transpose(2, 0, 1)
+            ys = ys.transpose(2, 0, 1)
             label = label.astype(int)
             scar = label[:, 1]
             
             self.label = torch.from_numpy(label)
-            self.data = torch.from_numpy(dataset).float()
+            self.xs = torch.from_numpy(xs).float()
+            self.ys = torch.from_numpy(ys).float()
         elif self.file_versions[0] == 2:
             matFiles = h5py.File(self.data_path, 'r')
-            dataset = matFiles['params']
+            xs = matFiles['sources']
+            ys = matFiles['measurements']
             label = matFiles['label']
 
-            self.data = dataset
+            self.xs = xs
+            self.ys = ys
             self.label = label
             scar = label[:, 1].astype(int)
         else:
@@ -136,7 +154,7 @@ class HeartEpisodicDataset(Dataset):
             idx = np.where(self.label[:, 1] == s)[0]
             self.scar_idx[s] = idx
 
-        print('final data size: {}'.format(self.data.shape[0]))
+        print('final data size: {}'.format(self.xs.shape[0]))
         self.split()
 
     def __len__(self):
@@ -144,43 +162,53 @@ class HeartEpisodicDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.file_versions[0] == 1:
-            y = self.label[[self.qry_idx[idx]]]
-            x = self.data[[self.qry_idx[idx]], :, :]
+            label = self.label[[self.qry_idx[idx]]]
+            x = self.xs[[self.qry_idx[idx]], :, :]
+            y = self.ys[[self.qry_idx[idx]], :, :]
 
-            scar = y[:, 1].numpy()[0]
-            D_x = self.data[self.spt_idx[scar], :, :]
-            D_y = self.label[self.spt_idx[scar]]
+            scar = label[:, 1].numpy()[0]
+            D_x = self.xs[self.spt_idx[scar], :, :]
+            D_y = self.ys[self.spt_idx[scar], :, :]
+            D_label = self.label[self.spt_idx[scar]]
             
         elif self.file_versions[0] == 2:
-            y = self.label[:, [self.qry_idx[idx]]]
-            x = self.data[[self.qry_idx[idx]], :, :]
+            label = self.label[:, [self.qry_idx[idx]]]
+            x = self.xs[[self.qry_idx[idx]], :, :]
+            y = self.ys[[self.qry_idx[idx]], :, :]
             
             x = torch.from_numpy(x).float()
-            y = torch.from_numpy(y).int()
+            y = torch.from_numpy(y).float()
+            label = torch.from_numpy(label).int()
             x = x.permute(0, 2, 1).contiguous()
-            y = y.permute(1, 0).contiguous()
+            y = y.permute(0, 2, 1).contiguous()
+            label = label.permute(1, 0).contiguous()
 
-            scar = y[:, 1].numpy()[0]
-            D_x = self.data[self.spt_idx[scar], :, :]
-            D_y = self.label[:, self.spt_idx[scar]]
+            scar = label[:, 1].numpy()[0]
+            D_x = self.xs[self.spt_idx[scar], :, :]
+            D_y = self.ys[self.spt_idx[scar], :, :]
+            D_label = self.label[:, self.spt_idx[scar]]
 
             D_x = torch.from_numpy(D_x).float()
-            D_y = torch.from_numpy(D_y).int()
+            D_y = torch.from_numpy(D_y).float()
+            D_label = torch.from_numpy(D_label).int()
             D_x = D_x.permute(0, 2, 1).contiguous()
-            D_y = D_y.permute(1, 0).contiguous()
+            D_y = D_y.permute(0, 2, 1).contiguous()
+            D_label = D_label.permute(1, 0).contiguous()
         else:
             raise NotImplemented
 
         num_sample = min(len(self.scar_idx[scar]), self.k_shot)
-        D_y = D_y.view(1, num_sample, -1)
+        D_label = D_label.view(1, num_sample, -1)
 
         sample = DataWithDomain(
             x=x,
             y=y,
+            label=label,
             pos=self.heart_name,
             # mask=self.mask,
             D_x=D_x,
-            D_y=D_y
+            D_y=D_y,
+            D_label=D_label
         )
         return sample
     

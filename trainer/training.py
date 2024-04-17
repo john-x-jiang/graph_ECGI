@@ -163,22 +163,25 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
         if epoch > 1 and meta_dataset:
             data_loader = data_loader.next()
         for idx, data in enumerate(data_loader):
-            signal, label = data.x, data.y
-            signal = signal.to(device)
+            x, y, label = data.x, data.y, data.label
+            x = x.to(device)
+            y = y.to(device)
             label = label.to(device)
 
             if window is not None:
-                signal = signal[:, :, :window]
-
-            x_heart = signal[:, :-torso_len, omit:]
-            x_torso = signal[:, -torso_len:, omit:]
+                x = x[:, :, :window]
+                y = y[:, :, :window]
+            
+            if omit is not None:
+                x = x[:, :, omit:]
+                y = y[:, :, omit:]
 
             if signal_source == 'heart':
-                source = x_heart
-                output = x_heart
+                source = x
+                output = x
             elif signal_source == 'torso':
-                source = x_torso
-                output = x_heart
+                source = y
+                output = x
 
             optimizer.zero_grad()
 
@@ -193,30 +196,36 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
             else:
                 D_x = data.D_x
                 D_y = data.D_y
+                D_label = data.D_label
                 D_x = D_x.to(device)
                 D_y = D_y.to(device)
+                D_label = D_label.to(device)
 
                 if window is not None:
                     D_x = D_x[:, :, :window]
+                    D_y = D_y[:, :, :window]
+                
+                if omit is not None:
+                    D_x = D_x[:, :, omit:]
+                    D_y = D_y[:, :, omit:]
 
-                N, M, T = signal.shape
-                D_x = D_x.view(N, -1, M ,T)
-
-                D_x_heart = D_x[:, :, :-torso_len, omit:]
-                D_x_torso = D_x[:, :, -torso_len:, omit:]
+                N, M1, T = x.shape
+                N, M2, T = y.shape
+                D_x = D_x.view(N, -1, M1, T)
+                D_y = D_y.view(N, -1, M2, T)
 
                 if signal_source == 'heart':
-                    D_source = D_x_heart
+                    D_source = D_x
                 elif signal_source == 'torso':
-                    D_source = D_x_torso
+                    D_source = D_y
                 
                 if changable:
                     K = D_source.shape[1]
                     sub_K = np.random.randint(low=1, high=K+1, size=1)[0]
                     D_source = D_source[:, :sub_K, :]
-                    D_y = D_y[:, :sub_K, :]
+                    D_label = D_label[:, :sub_K, :]
 
-                physics_vars, statistic_vars = model(source, label, D_source, D_y, data_name)
+                physics_vars, statistic_vars = model(source, label, D_source, D_label, data_name)
             
             if loss_func == 'recon_loss':
                 x_ = physics_vars[0]
@@ -316,22 +325,25 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
             if epoch > 1 and meta_dataset:
                 data_loader = data_loader.next()
             for idx, data in enumerate(data_loader):
-                signal, label = data.x, data.y
-                signal = signal.to(device)
+                x, y, label = data.x, data.y, data.label
+                x = x.to(device)
+                y = y.to(device)
                 label = label.to(device)
 
                 if window is not None:
-                    signal = signal[:, :, :window]
+                    x = x[:, :, :window]
+                    y = y[:, :, :window]
                 
-                x_heart = signal[:, :-torso_len, omit:]
-                x_torso = signal[:, -torso_len:, omit:]
+                if omit is not None:
+                    x = x[:, :, omit:]
+                    y = y[:, :, omit:]
 
                 if signal_source == 'heart':
-                    source = x_heart
-                    output = x_heart
+                    source = x
+                    output = x
                 elif signal_source == 'torso':
-                    source = x_torso
-                    output = x_heart
+                    source = y
+                    output = x
 
                 r_kl = kl_args['lambda']
                 kl_factor = 1 * r_kl
@@ -341,29 +353,36 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                 else:
                     D_x = data.D_x
                     D_y = data.D_y
+                    D_label = data.D_label
                     D_x = D_x.to(device)
                     D_y = D_y.to(device)
+                    D_label = D_label.to(device)
 
                     if window is not None:
                         D_x = D_x[:, :, :window]
+                        D_y = D_y[:, :, :window]
+                    
+                    if omit is not None:
+                        D_x = D_x[:, :, omit:]
+                        D_y = D_y[:, :, omit:]
 
-                    N, M, T = signal.shape
-                    D_x = D_x.view(N, -1, M ,T)
-                    D_x_heart = D_x[:, :, :-torso_len, omit:]
-                    D_x_torso = D_x[:, :, -torso_len:, omit:]
+                    N, M1, T = x.shape
+                    N, M2, T = y.shape
+                    D_x = D_x.view(N, -1, M1, T)
+                    D_y = D_y.view(N, -1, M2, T)
 
                     if signal_source == 'heart':
-                        D_source = D_x_heart
+                        D_source = D_x
                     elif signal_source == 'torso':
-                        D_source = D_x_torso
+                        D_source = D_y
                     
                     if changable:
                         K = D_source.shape[1]
                         sub_K = np.random.randint(low=1, high=K+1, size=1)[0]
                         D_source = D_source[:, :sub_K, :]
-                        D_y = D_y[:, :sub_K, :]
+                        D_label = D_label[:, :sub_K, :]
 
-                    physics_vars, statistic_vars = model(source, label, D_source, D_y, data_name)
+                    physics_vars, statistic_vars = model(source, label, D_source, D_label, data_name)
                 
                 if loss_func == 'recon_loss':
                     x_, _ = physics_vars

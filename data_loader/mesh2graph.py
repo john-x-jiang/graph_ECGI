@@ -107,10 +107,10 @@ class GraphPyramid():
         edge_index = self.face2edge(face)
         P, g_coarse = copy.deepcopy(self.cluster_mesh(g, cluster, cor, edge_index))
 
-        if is_heart:
-            self.save_connection(g_coarse, name='h{}'.format(index), face=face)
-        else:
-            self.save_connection(g_coarse, name='t{}'.format(index), face=face)
+        # if is_heart:
+        #     self.save_connection(g_coarse, name='h{}'.format(index), face=face)
+        # else:
+        #     self.save_connection(g_coarse, name='t{}'.format(index), face=face)
 
         return P, g_coarse
     

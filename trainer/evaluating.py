@@ -49,25 +49,29 @@ def evaluate_epoch(model, data_loaders, metrics, exp_dir, hparams, data_tags, ev
                 n_data += len_epoch * data_loader.batch_size
                 
                 for idx, data in enumerate(data_loader):
-                    signal, label = data.x, data.y
-                    signal = signal.to(device)
+                    x, y, label = data.x, data.y, data.label
+                    x = x.to(device)
+                    y = y.to(device)
                     label = label.to(device)
                     
                     if window is not None:
-                        signal = signal[:, :, :window]
+                        x = x[:, :, :window]
+                        y = y[:, :, :window]
+                    
+                    if omit is not None:
+                        x = x[:, :, omit:]
+                        y = y[:, :, omit:]
                     
                     if data_scaler is not None:
-                        signal = data_scaler * signal
-
-                    x_heart = signal[:, :-torso_len, omit:]
-                    x_torso = signal[:, -torso_len:, omit:]
+                        x = data_scaler * x
+                        y = data_scaler * y
 
                     if signal_source == 'heart':
-                        source = x_heart
-                        output = x_heart
+                        source = x
+                        output = x
                     elif signal_source == 'torso':
-                        source = x_torso
-                        output = x_heart
+                        source = y
+                        output = x
 
                     physics_vars, statistic_vars = model(source, data_name)
                     x_ = physics_vars[0]
@@ -177,54 +181,66 @@ def prediction_epoch(model, spt_data_loaders, qry_data_loaders, metrics, exp_dir
                         data_iterator = iter(spt_data_loader)
                         spt_data = next(data_iterator)
 
-                    qry_signal, qry_label = qry_data.x, qry_data.y
-                    qry_signal = qry_signal.to(device)
+                    qry_x, qry_y, qry_label = qry_data.x, qry_data.y, qry_data.label
+                    qry_x = qry_x.to(device)
+                    qry_y = qry_y.to(device)
                     qry_label = qry_label.to(device)
 
                     if window is not None:
-                        qry_signal = qry_signal[:, :, :window]
+                        qry_x = qry_x[:, :, :window]
+                        qry_y = qry_y[:, :, :window]
+                    
+                    if omit is not None:
+                        qry_x = qry_x[:, :, omit:]
+                        qry_y = qry_y[:, :, omit:]
                     
                     if data_scaler is not None:
-                        qry_signal = data_scaler * qry_signal
-
-                    qry_x_heart = qry_signal[:, :-torso_len, omit:]
-                    qry_x_torso = qry_signal[:, -torso_len:, omit:]
+                        qry_x = data_scaler * qry_x
+                        qry_y = data_scaler * qry_y
 
                     if signal_source == 'heart':
-                        qry_source = qry_x_heart
-                        qry_output = qry_x_heart
+                        qry_source = qry_x
+                        qry_output = qry_x
                     elif signal_source == 'torso':
-                        qry_source = qry_x_torso
-                        qry_output = qry_x_heart
+                        qry_source = qry_y
+                        qry_output = qry_x
 
                     D_x = spt_data.D_x
                     D_y = spt_data.D_y
+                    D_label = spt_data.D_label
                     D_x = D_x.to(device)
                     D_y = D_y.to(device)
+                    D_label = D_label.to(device)
 
                     if window is not None:
                         D_x = D_x[:, :, :window]
+                        D_y = D_y[:, :, :window]
+                    
+                    if omit is not None:
+                        D_x = D_x[:, :, omit:]
+                        D_y = D_y[:, :, omit:]
                     
                     if data_scaler is not None:
                         D_x = data_scaler * D_x
+                        D_y = data_scaler * D_y
 
-                    N, M, T = qry_signal.shape
-                    D_x = D_x.view(N, -1, M ,T)
-                    D_x_heart = D_x[:, :, :-torso_len, omit:]
-                    D_x_torso = D_x[:, :, -torso_len:, omit:]
+                    N, M1, T = qry_x.shape
+                    N, M2, T = qry_y.shape
+                    D_x = D_x.view(N, -1, M1, T)
+                    D_y = D_y.view(N, -1, M2, T)
 
                     if signal_source == 'heart':
-                        D_source = D_x_heart
+                        D_source = D_x
                     elif signal_source == 'torso':
-                        D_source = D_x_torso
+                        D_source = D_y
                     
                     if changable:
                         K = D_source.shape[1]
                         sub_K = np.random.randint(low=1, high=K+1, size=1)[0]
                         D_source = D_source[:, :sub_K, :]
-                        D_y = D_y[:, :sub_K, :]
+                        D_label = D_label[:, :sub_K, :]
 
-                    physics_vars, statistic_vars = model.prediction(qry_source, qry_label, D_source, D_y, data_name)
+                    physics_vars, statistic_vars = model.prediction(qry_source, qry_label, D_source, D_label, data_name)
 
                     x_ = physics_vars[0]
 
