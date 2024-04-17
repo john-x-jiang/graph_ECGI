@@ -79,7 +79,8 @@
             "anneal_update": 1000,
             "elbo": "sum",
             "lambda": 1
-        }
+        },
+        "loss_to_plot": ["likelihood"]
     },
     "evaluating": {
         "signal_source": "torso",

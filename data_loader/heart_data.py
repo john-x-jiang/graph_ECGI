@@ -1,6 +1,6 @@
 import os.path as osp
 import numpy as np
-
+import h5py
 import scipy.io
 import torch
 from torch.utils.data import Dataset
@@ -31,44 +31,54 @@ class HeartGraphDataset(Dataset):
                  signal_type='egm',
                  num_mesh=None,
                  seq_len=None,
-                 split='train',
-                 subset=1):
+                 split='train'):
         self.root = osp.expanduser(osp.normpath(root))
         self.raw_dir = osp.join(self.root, 'signal/{}/'.format(data_name))
 
         filename = '{}_{}_{}.mat'.format(split, signal_type, num_mesh)
         self.data_path = osp.join(self.raw_dir, filename)
-        matFiles = scipy.io.loadmat(self.data_path, squeeze_me=True, struct_as_record=False)
-        dataset = matFiles['params']
-        label = matFiles['label']
 
-        dataset = dataset.transpose(2, 0, 1)
-
-        N = dataset.shape[0]
-        if subset == 1:
-            index = np.arange(N)
-        elif subset == 0:
-            raise RuntimeError('No data')
-        else:
-            indices = list(range(N))
-            np.random.shuffle(indices)
-            split = int(np.floor(subset * N))
-            sub_index = indices[:split]
-            dataset = dataset[sub_index, :, :]
-            index = np.arange(dataset.shape[1])
-        
-        label = label.astype(int)
-        self.label = torch.from_numpy(label[index])
-        self.data = torch.from_numpy(dataset[index, :, :]).float()
+        self.file_versions = scipy.io.matlab.miobase.get_matfile_version(self.data_path)
         self.heart_name = data_name
+        if self.file_versions[0] == 1:
+            matFiles = scipy.io.loadmat(self.data_path, squeeze_me=True, struct_as_record=False)
+            dataset = matFiles['params']
+            label = matFiles['label']
+
+            dataset = dataset.transpose(2, 0, 1)
+            label = label.astype(int)
+            self.label = torch.from_numpy(label)
+            self.data = torch.from_numpy(dataset).float()
+        elif self.file_versions[0] == 2:
+            matFiles = h5py.File(self.data_path, 'r')
+            dataset = matFiles['params']
+            label = matFiles['label']
+
+            self.data = dataset
+            self.label = label
+        else:
+            raise NotImplemented
+        
         print('final data size: {}'.format(self.data.shape[0]))
 
     def __len__(self):
         return (self.data.shape[0])
 
     def __getitem__(self, idx):
-        x = self.data[[idx], :, :]
-        y = self.label[[idx]]
+        if self.file_versions[0] == 1:
+            x = self.data[[idx], :, :]
+            y = self.label[[idx]]
+        elif self.file_versions[0] == 2:
+            x = self.data[[idx], :, :]
+            y = self.label[:, [idx]]
+
+            x = torch.from_numpy(x).float()
+            y = torch.from_numpy(y).int()
+            x = x.permute(0, 2, 1).contiguous()
+            y = y.permute(1, 0).contiguous()
+        else:
+            raise NotImplemented
+        
         sample = Data(
             x=x,
             y=y,
@@ -86,7 +96,6 @@ class HeartEpisodicDataset(Dataset):
                  seq_len=None,
                  split='train',
                  shuffle=True,
-                 subset=1,
                  k_shot=2):
         self.root = osp.expanduser(osp.normpath(root))
         self.raw_dir = osp.join(self.root, 'signal/{}/'.format(data_name))
@@ -96,33 +105,31 @@ class HeartEpisodicDataset(Dataset):
 
         filename = '{}_{}_{}.mat'.format(split, signal_type, num_mesh)
         self.data_path = osp.join(self.raw_dir, filename)
-        matFiles = scipy.io.loadmat(self.data_path, squeeze_me=True, struct_as_record=False)
-        dataset = matFiles['params']
-        label = matFiles['label']
-        # mask = matFiles['inf_idx']
-
-        dataset = dataset.transpose(2, 0, 1)
-
-        N = dataset.shape[0]
-        if subset == 1:
-            index = np.arange(N)
-        elif subset == 0:
-            raise RuntimeError('No data')
-        else:
-            indices = list(range(N))
-            np.random.shuffle(indices)
-            split = int(np.floor(subset * N))
-            sub_index = indices[:split]
-            dataset = dataset[sub_index, :, :]
-            index = np.arange(dataset.shape[1])
         
-        label = label.astype(int)
-        self.label = torch.from_numpy(label[index])
-        self.data = torch.from_numpy(dataset[index, :, :]).float()
-        # self.mask = mask
+        self.file_versions = scipy.io.matlab.miobase.get_matfile_version(self.data_path)
         self.heart_name = data_name
+        if self.file_versions[0] == 1:
+            matFiles = scipy.io.loadmat(self.data_path, squeeze_me=True, struct_as_record=False)
+            dataset = matFiles['params']
+            label = matFiles['label']
 
-        scar = self.label[:, 1]
+            dataset = dataset.transpose(2, 0, 1)
+            label = label.astype(int)
+            scar = label[:, 1]
+            
+            self.label = torch.from_numpy(label)
+            self.data = torch.from_numpy(dataset).float()
+        elif self.file_versions[0] == 2:
+            matFiles = h5py.File(self.data_path, 'r')
+            dataset = matFiles['params']
+            label = matFiles['label']
+
+            self.data = dataset
+            self.label = label
+            scar = label[:, 1].astype(int)
+        else:
+            raise NotImplemented
+
         scar = np.unique(scar)
         self.scar_idx = {}
         for s in scar:
@@ -130,19 +137,40 @@ class HeartEpisodicDataset(Dataset):
             self.scar_idx[s] = idx
 
         print('final data size: {}'.format(self.data.shape[0]))
-        np.random.seed(0)
         self.split()
 
     def __len__(self):
         return (self.qry_idx.shape[0])
 
     def __getitem__(self, idx):
-        y = self.label[[self.qry_idx[idx]]]
-        x = self.data[[self.qry_idx[idx]], :, :]
+        if self.file_versions[0] == 1:
+            y = self.label[[self.qry_idx[idx]]]
+            x = self.data[[self.qry_idx[idx]], :, :]
 
-        scar = y[:, 1].numpy()[0]
-        D_x = self.data[self.spt_idx[scar], :, :]
-        D_y = self.label[self.spt_idx[scar]]
+            scar = y[:, 1].numpy()[0]
+            D_x = self.data[self.spt_idx[scar], :, :]
+            D_y = self.label[self.spt_idx[scar]]
+            
+        elif self.file_versions[0] == 2:
+            y = self.label[:, [self.qry_idx[idx]]]
+            x = self.data[[self.qry_idx[idx]], :, :]
+            
+            x = torch.from_numpy(x).float()
+            y = torch.from_numpy(y).int()
+            x = x.permute(0, 2, 1).contiguous()
+            y = y.permute(1, 0).contiguous()
+
+            scar = y[:, 1].numpy()[0]
+            D_x = self.data[self.spt_idx[scar], :, :]
+            D_y = self.label[:, self.spt_idx[scar]]
+
+            D_x = torch.from_numpy(D_x).float()
+            D_y = torch.from_numpy(D_y).int()
+            D_x = D_x.permute(0, 2, 1).contiguous()
+            D_y = D_y.permute(1, 0).contiguous()
+        else:
+            raise NotImplemented
+
         num_sample = min(len(self.scar_idx[scar]), self.k_shot)
         D_y = D_y.view(1, num_sample, -1)
 

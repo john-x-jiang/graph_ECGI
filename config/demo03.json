@@ -100,6 +100,7 @@
             "elbo": "sum",
             "lambda": 1
         },
+        "loss_to_plot": ["likelihood", "kl_domain", "kl_domain_reg", "kl_initial"],
         "r1": 1e-1,
         "r2": 1e-4,
         "r3": 1e-4,
