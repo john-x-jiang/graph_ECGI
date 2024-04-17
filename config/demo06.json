@@ -77,7 +77,7 @@
     "load_physics": 0,
     "device": 0,
     "training": {
-        "epochs": 2,
+        "epochs": 300,
         "meta_dataset": true,
 
         "save_period": 20,
