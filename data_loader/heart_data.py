@@ -144,14 +144,14 @@ class HeartEpisodicDataset(Dataset):
             self.xs = xs
             self.ys = ys
             self.label = label
-            scar = label[:, 1].astype(int)
+            scar = label[1, :].astype(int)
         else:
             raise NotImplemented
 
-        scar = np.unique(scar)
+        unique_scar = np.unique(scar)
         self.scar_idx = {}
-        for s in scar:
-            idx = np.where(self.label[:, 1] == s)[0]
+        for s in unique_scar:
+            idx = np.where(scar == s)[0]
             self.scar_idx[s] = idx
 
         print('final data size: {}'.format(self.xs.shape[0]))
