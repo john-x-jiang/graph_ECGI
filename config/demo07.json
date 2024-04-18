@@ -1,0 +1,92 @@
+{
+    "exp_name": "demo",
+    "exp_id": "07",
+    
+    "model": {
+        "type": "HybridSSM",
+        "args": {
+            "num_filters": [
+                1,
+                8,
+                16,
+                32,
+                64,
+                128,
+                256
+            ],
+            "latent_dim": 64,
+            "ode_args": {
+                "latent_dim": 64,
+                "transition_dim": 128,
+                "num_layers": 2,
+                "act_func": "elu",
+                "adjoint": true,
+                "domain": false
+            }
+        }
+    },
+
+    "data":{
+        "data_set": "HeartDataLoader",
+        "data_dir": "data/",
+        "data_names": ["EC"],
+        "signal_type": "egm",
+        "num_meshes": [568],
+        "seq_len": 101,
+        "graph_method": "bipartite",
+        "num_workers": 1,
+        "eval_tags": [
+            "qry1",
+            "qry2",
+            "qry3",
+            "qry4",
+            "qry5"
+        ]
+    },
+
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 5e-4,
+            "amsgrad": false,
+            "betas": [0.9, 0.999]
+        }
+    },
+    "lr_scheduler": 0,
+
+    "loss": "physics_loss",
+    "metrics": [
+        "mse", "tcc", "scc"
+    ],
+
+    "batch_size": 2,
+    "load_torso": 1,
+    "load_physics": 1,
+    "device": 0,
+    "training": {
+        "epochs": 600,
+
+        "save_period": 20,
+        "signal_source": "torso",
+
+        "monitor": "min valid_loss",
+        "early_stop": 100,
+
+        "torso_len": 120,
+
+        "kl_args":{
+            "min_annealing_factor": 0.0,
+            "anneal_update": 1000,
+            "elbo": "sum",
+            "lambda": 1
+        },
+        "loss_to_plot": ["likelihood_y", "regularization"],
+        "r1": 1e-3
+    },
+    "evaluating": {
+        "signal_source": "torso",
+        "torso_len": 120
+    },
+    
+    "best_model": "m_best"
+}

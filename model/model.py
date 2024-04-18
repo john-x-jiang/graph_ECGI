@@ -463,3 +463,107 @@ class MetaDynamics_MaskIn(BaseModel):
         x_ = self.decoder(z, heart_name)
 
         return (x_, ), (None, None, None, None)
+
+
+class HybridSSM(BaseModel):
+    def __init__(self, 
+                 num_filters,
+                 latent_dim,
+                 ode_args=None):
+        super().__init__()
+        self.num_filters = num_filters
+        self.latent_dim = latent_dim
+        self.ode_args = ode_args
+
+        self.encoder = SpatialEncoderTorso(num_filters, latent_dim)
+        self.decoder = SpatialDecoder(num_filters, latent_dim)
+
+        self.transition = Propagation(**ode_args)
+        self.correction = Correction(latent_dim, dim=3, kernel_size=3, norm=False)
+
+        self.trans = Spline(self.latent_dim, self.latent_dim, dim=3, kernel_size=3, norm=False, degree=2, root_weight=False, bias=False)
+
+        self.H_inv = dict()
+        self.P = dict()
+        self.H = dict()
+        self.L = dict()
+    
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)
+        self.H_inv[heart_name] = params["H_inv"]
+        self.P[heart_name] = params["P"]
+        self.H[heart_name] = params["H"]
+        self.L[heart_name] = params["L"]
+
+        self.encoder.setup(heart_name, params)
+        self.decoder.setup(heart_name, params)
+    
+    def inverse(self, z, heart_name):
+        batch_size, seq_len = z.shape[0], z.shape[-1]
+        x = z.view(batch_size, -1, self.latent_dim, seq_len)
+
+        edge_index, edge_attr = self.H_inv[heart_name].edge_index, self.H_inv[heart_name].edge_attr
+        num_heart, num_torso = self.P[heart_name].shape[0], self.P[heart_name].shape[1]
+        
+        x_bin = torch.zeros(batch_size, num_heart, self.latent_dim, seq_len).to(device)
+        x_bin = torch.cat((x_bin, x), 1)
+        
+        x_bin = x_bin.permute(3, 0, 1, 2).contiguous()
+        x_bin = x_bin.view(-1, self.latent_dim)
+        edge_index, edge_attr = expand(batch_size, num_heart + num_torso, seq_len, edge_index, edge_attr)
+
+        x_bin = self.trans(x_bin, edge_index, edge_attr)
+        x_bin = x_bin.view(seq_len, batch_size, -1, self.latent_dim)
+        x_bin = x_bin.permute(1, 2, 3, 0).contiguous()
+        
+        x_bin = x_bin[:, 0:-num_torso, :, :]
+        return x_bin
+    
+    def time_modeling(self, x, heart_name):
+        N, V, C, T = x.shape
+        edge_index, edge_attr = self.decoder.bg4[heart_name].edge_index, self.decoder.bg4[heart_name].edge_attr
+
+        x = x.permute(3, 0, 1, 2).contiguous()
+        last_h = x[0]
+
+        outputs = []
+        outputs.append(last_h.view(1, N, V, C))
+
+        outputs_ode = []
+        outputs_ode.append(last_h.view(1, N, V, C))
+
+        x = x.view(T, N * V, C)
+        for t in range(1, T):
+            last_h = last_h.view(N, V, -1)
+
+            # Propagation
+            # TODO: change dt and steps by temporal resolution
+            dt = 1
+            steps = 1
+            last_h = self.transition(last_h, dt, steps=steps)
+
+            last_h = last_h[-1, :, :, :]
+            outputs_ode.append(last_h.view(1, N, V, C))
+            # Corrrection
+            last_h = last_h.view(N * V, -1)
+            h = self.correction(x[t], last_h, edge_index, edge_attr)
+
+            last_h = h
+            outputs.append(h.view(1, N, V, C))
+        
+        outputs = torch.cat(outputs, dim=0)
+        outputs = outputs.permute(1, 2, 3, 0).contiguous()
+        return outputs
+
+    def regularization(self, x_, heart_name):
+        LX = torch.matmul(self.L[heart_name], x_)
+        y_ = torch.matmul(self.H[heart_name], x_)
+        return LX, y_
+
+    def forward(self, y, heart_name):
+        z_torso = self.encoder(y, heart_name)
+        z_heart = self.inverse(z_torso, heart_name)
+        z = self.time_modeling(z_heart, heart_name)
+        x = self.decoder(z, heart_name)
+        LX, y = self.regularization(x, heart_name)
+        return (x, LX, y), None

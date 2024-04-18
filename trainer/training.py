@@ -234,6 +234,33 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
                     loss_type = 'mse'
                 
                 total, separate_terms = loss(x_, output, loss_type)
+            elif loss_func == 'physics_loss':
+                x_, LX, y_ = physics_vars
+                
+                if loss_type is None:
+                    loss_type = 'mse'
+                
+                r1 = train_config.get('r1')
+                if r1 is None:
+                    r1 = 1
+                
+                total, separate_terms = loss(y_, source, LX, loss_type, r1)
+            elif loss_func == 'mixed_loss':
+                x_, LX, y_ = physics_vars
+                
+                if loss_type is None:
+                    loss_type = 'mse'
+                
+                is_real = True if -1 in label[:, 1].int() else False
+                
+                r1 = train_config.get('r1')
+                r2 = train_config.get('r2')
+                if r1 is None:
+                    r1 = 1
+                if r2 is None:
+                    r2 = 1
+                
+                total, separate_terms = loss(y_, source, x_, output, LX, loss_type, r1, r2, is_real)
             elif loss_func == 'meta_loss':
                 x_ = physics_vars[0]
                 mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0 = statistic_vars
@@ -386,7 +413,38 @@ def valid_epoch(model, epoch, loss, data_loaders, hparams):
                 
                 if loss_func == 'recon_loss':
                     x_, _ = physics_vars
-                    total, separate_terms = loss(x_, output)
+
+                    if loss_type is None:
+                        loss_type = 'mse'
+                    
+                    total, separate_terms = loss(x_, output, loss_type)
+                elif loss_func == 'physics_loss':
+                    x_, LX, y_ = physics_vars
+                    
+                    if loss_type is None:
+                        loss_type = 'mse'
+                    
+                    r1 = train_config.get('r1')
+                    if r1 is None:
+                        r1 = 1
+                    
+                    total, separate_terms = loss(y_, source, LX, loss_type, r1)
+                elif loss_func == 'mixed_loss':
+                    x_, LX, y_ = physics_vars
+                    
+                    if loss_type is None:
+                        loss_type = 'mse'
+                    
+                    is_real = True if -1 in label[:, 1].int() else False
+                    
+                    r1 = train_config.get('r1')
+                    r2 = train_config.get('r2')
+                    if r1 is None:
+                        r1 = 1
+                    if r2 is None:
+                        r2 = 1
+                    
+                    total, separate_terms = loss(y_, source, x_, output, LX, loss_type, r1, r2, is_real)
                 elif loss_func == 'meta_loss':
                     x_ = physics_vars[0]
                     mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0 = statistic_vars

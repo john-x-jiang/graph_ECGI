@@ -50,8 +50,14 @@ def data_loading(hparams, stage=1):
     if stage == 1:
         train_loaders, valid_loaders = {}, {}
     elif stage == 2:
+        eval_names = data_config.get('eval_names')
+        if eval_names is not None:
+            data_names = eval_names
         eval_loaders = {}
     elif stage == 3:
+        eval_names = data_config.get('eval_names')
+        if eval_names is not None:
+            data_names = eval_names
         eval_loaders, pred_loaders = {}, {}
     
     for data_name, num_mesh in zip(data_names, num_meshes):

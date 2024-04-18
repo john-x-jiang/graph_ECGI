@@ -9,7 +9,7 @@ from torch import nn
 import torch.nn.init as weight_init
 from torch.nn import functional as F
 from torch.autograd import Variable
-from torchdiffeq import odeint
+from torchdiffeq import odeint, odeint_adjoint
 
 from torch_geometric.nn.inits import uniform
 from torch_geometric.loader import DataLoader
@@ -692,6 +692,68 @@ class SpatialEncoder(nn.Module):
         return x
 
 
+class SpatialEncoderTorso(nn.Module):
+    def __init__(self, num_filters, latent_dim):
+        super().__init__()
+        self.nf = num_filters
+        self.latent_dim = latent_dim
+
+        self.conv1 = Spatial_Block(self.nf[0], self.nf[2], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv2 = Spatial_Block(self.nf[2], self.nf[3], dim=3, kernel_size=(3, 1), process='e', norm=False)
+        self.conv3 = Spatial_Block(self.nf[3], self.nf[4], dim=3, kernel_size=(3, 1), process='e', norm=False)
+
+        self.fce1 = nn.Conv2d(self.nf[4], self.nf[6], 1)
+        self.fce2 = nn.Conv2d(self.nf[6], latent_dim, 1)
+
+        self.tg = dict()
+        self.tg1 = dict()
+        self.tg2 = dict()
+
+        self.t_P01 = dict()
+        self.t_P12 = dict()
+        self.t_P23 = dict()
+    
+    def setup(self, heart_name, params):
+        self.tg[heart_name] = params["t_bg"]
+        self.tg1[heart_name] = params["t_bg1"]
+        self.tg2[heart_name] = params["t_bg2"]
+
+        self.t_P01[heart_name] = params["t_P01"]
+        self.t_P12[heart_name] = params["t_P12"]
+        self.t_P23[heart_name] = params["t_P23"]
+    
+    def forward(self, x, heart_name):
+        batch_size, seq_len = x.shape[0], x.shape[-1]
+        # layer 1 (graph setup, conv, nonlinear, pool)
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[0], seq_len), self.tg[heart_name].edge_index, self.tg[heart_name].edge_attr  # (1230*bs) X f[0]
+        x = self.conv1(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[2] * seq_len)
+        x = torch.matmul(self.t_P01[heart_name], x)
+        
+        # layer 2
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[2], seq_len), self.tg1[heart_name].edge_index, self.tg1[heart_name].edge_attr
+        x = self.conv2(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[3] * seq_len)
+        x = torch.matmul(self.t_P12[heart_name], x)
+        
+        # layer 3
+        x, edge_index, edge_attr = \
+            x.view(batch_size, -1, self.nf[3], seq_len), self.tg2[heart_name].edge_index, self.tg2[heart_name].edge_attr
+        x = self.conv3(x, edge_index, edge_attr)
+        x = x.view(batch_size, -1, self.nf[4] * seq_len)
+        x = torch.matmul(self.t_P23[heart_name], x)
+        x = x.view(batch_size, -1, self.nf[4], seq_len)
+
+        x = x.permute(0, 2, 1, 3).contiguous()
+        x = F.elu(self.fce1(x), inplace=True)
+        x = torch.tanh(self.fce2(x))
+
+        x = x.permute(0, 2, 1, 3).contiguous()
+        return x
+
+
 class SpatialDecoder(nn.Module):
     def __init__(self, nf, latent_dim):
         super().__init__()
@@ -856,6 +918,77 @@ class Transition_ODE(nn.Module):
         
         zt = odeint(solver, z_0, t, method='rk4', options={'step_size': 0.25})
         return zt
+
+
+class Propagation(nn.Module):
+    def __init__(self, latent_dim, transition_dim, num_layers=2, 
+                 act_func='swish', adjoint=False,
+                 step_size=None, domain=False):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.transition_dim = transition_dim
+        self.num_layers = num_layers
+        self.act_func = act_func
+        self.adjoint = adjoint
+        self.step_size = step_size
+        self.domain = domain
+
+        self.layers_dim = [latent_dim] + num_layers * [transition_dim] + [latent_dim]
+
+        self.layers, self.acts = [], []
+        for i, (n_in, n_out) in enumerate(zip(self.layers_dim[:-1], self.layers_dim[1:])):
+            self.acts.append(get_act(act_func) if i < num_layers else get_act('tanh'))
+            self.layers.append(nn.Linear(n_in, n_out, device=device))
+        
+    def ode_solver(self, t, x):
+        for a, layer in zip(self.acts, self.layers):
+            x = a(layer(x))
+        return x
+    
+    def forward(self, x, dt, steps=1):
+        if steps == 1:
+            self.integration_time = dt * torch.Tensor([0, 1]).float().to(device)
+        else:
+            self.integration_time = dt * torch.arange(steps + 1).float().to(device)
+
+        N, V, C = x.shape
+        x = x.contiguous()
+
+        solver = lambda t, x: self.ode_solver(t, x)
+        if self.adjoint:
+            x = odeint_adjoint(
+                solver, x, self.integration_time, method='rk4', 
+                adjoint_params=(), options={'step_size': self.step_size}
+            )
+        else:
+            x = odeint(
+                solver, x, self.integration_time, 
+                method='rk4', options={'step_size': self.step_size}
+            )
+
+        x = x[1:]
+        x = x.view(steps, N, V, C)
+        return x
+
+
+class Correction(nn.Module):
+    def __init__(self,
+                 latent_dim,
+                 dim=3,
+                 kernel_size=3,
+                 is_open_spline=True,
+                 degree=1,
+                 norm=True,
+                 root_weight=True,
+                 bias=True):
+        super().__init__()
+        self.latent_dim = latent_dim
+
+        self.rnn = GCGRUCell(latent_dim, latent_dim, kernel_size, dim, is_open_spline, degree, norm, root_weight, bias)
+        
+    def forward(self, x, hidden, edge_index, edge_attr):
+        h = self.rnn(x, hidden, edge_index, edge_attr)
+        return h
 
 
 class GCGRUCell(nn.Module):

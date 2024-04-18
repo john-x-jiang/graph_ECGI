@@ -23,3 +23,11 @@ python main.py --config demo05 --stage 3 --tag qry0,qry1
 # Meta-model with GRU dynamics (Jiang et al, MICCAI 2022)
 python main.py --config demo06 --stage 1
 python main.py --config demo06 --stage 3 --tag qry0,qry1
+
+# HybridSSM Unsupervised Loss (Jiang et al, IEEE TMI 2024/MICCAI 2021)
+python main.py --config demo07 --stage 1
+python main.py --config demo07 --stage 2 --tag qry0,qry1
+
+# HybridSSM Mixed Loss (Jiang et al, IEEE TMI 2024)
+python main.py --config demo08 --stage 1
+python main.py --config demo08 --stage 2 --tag test

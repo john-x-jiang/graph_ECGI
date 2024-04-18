@@ -43,6 +43,40 @@ def recon_loss(x_, x, loss_type='mse'):
     return total, {'likelihood': nll_m}
 
 
+def physics_loss(y_, y, LX, loss_type='mse', r1=1, r2=0):
+    B, T = y.shape[0], y.shape[-1]
+    nll_raw_y = nll_loss(y_, y[:, :, :T], 'none', loss_type)
+    reg_raw = nll_loss(LX, torch.zeros_like(LX), 'none', loss_type)
+
+    nll_m_y = nll_raw_y.sum() / B
+    reg_m = reg_raw.sum() / B
+
+    total = nll_m_y + r1 * reg_m
+
+    return total, {'likelihood_y': nll_m_y, 'regularization': reg_m}
+
+
+def mixed_loss(y_, y, x_, x, LX, loss_type='mse', r1=1, r2=0, is_real=None):
+    B, T = y.shape[0], y.shape[-1]
+    nll_raw_y = nll_loss(y_, y[:, :, :T], 'none', loss_type)
+    reg_raw = nll_loss(LX, torch.zeros_like(LX), 'none', loss_type)
+
+    nll_raw_x = nll_loss(x_, x[:, :, :T], 'none', loss_type)
+
+    nll_m_y = nll_raw_y.sum() / B
+    reg_m = reg_raw.sum() / B
+
+    nll_m_x = nll_raw_x.sum() / B
+    reg_m_x = torch.zeros_like(reg_m)
+
+    if not is_real:
+        total = nll_m_y + r2 * nll_m_x
+    else:
+        total = nll_m_y + r1 * reg_m
+
+    return total, {'likelihood_y': nll_m_y, 'likelihood_x': nll_m_x, 'regularization': reg_m}
+
+
 def meta_loss(x_, x, mu_c, logvar_c, mu_t, logvar_t, mu_0, logvar_0, kl_annealing_factor=1, loss_type='mse', r1=1, r2=0, r3=1, l=1):
     B, T = x.shape[0], x.shape[-1]
     nll_raw = nll_loss(x_, x, 'none', loss_type)
