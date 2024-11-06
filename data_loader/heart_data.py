@@ -40,9 +40,8 @@ class HeartGraphDataset(Dataset):
         filename = '{}_{}_{}.mat'.format(split, signal_type, num_mesh)
         self.data_path = osp.join(self.raw_dir, filename)
 
-        self.file_versions = scipy.io.matlab.miobase.get_matfile_version(self.data_path)
         self.heart_name = data_name
-        if self.file_versions[0] == 1:
+        try:
             matFiles = scipy.io.loadmat(self.data_path, squeeze_me=True, struct_as_record=False)
             xs = matFiles['sources']
             ys = matFiles['measurements']
@@ -55,7 +54,9 @@ class HeartGraphDataset(Dataset):
             self.label = torch.from_numpy(label)
             self.xs = torch.from_numpy(xs).float()
             self.ys = torch.from_numpy(ys).float()
-        elif self.file_versions[0] == 2:
+
+            self.file_versions = 1
+        except NotImplementedError:
             matFiles = h5py.File(self.data_path, 'r')
             xs = matFiles['sources']
             ys = matFiles['measurements']
@@ -64,8 +65,10 @@ class HeartGraphDataset(Dataset):
             self.xs = xs
             self.ys = ys
             self.label = label
-        else:
-            raise NotImplemented
+
+            self.file_versions = 2
+        except:
+            ValueError('could not read at all...')
         
         print('final data size: {}'.format(self.xs.shape[0]))
 
@@ -73,11 +76,11 @@ class HeartGraphDataset(Dataset):
         return (self.xs.shape[0])
 
     def __getitem__(self, idx):
-        if self.file_versions[0] == 1:
+        if self.file_versions == 1:
             x = self.xs[[idx], :, :]
             y = self.ys[[idx], :, :]
             label = self.label[[idx]]
-        elif self.file_versions[0] == 2:
+        elif self.file_versions == 2:
             x = self.xs[[idx], :, :]
             y = self.ys[[idx], :, :]
             label = self.label[:, [idx]]
@@ -119,9 +122,8 @@ class HeartEpisodicDataset(Dataset):
         filename = '{}_{}_{}.mat'.format(split, signal_type, num_mesh)
         self.data_path = osp.join(self.raw_dir, filename)
         
-        self.file_versions = scipy.io.matlab.miobase.get_matfile_version(self.data_path)
         self.heart_name = data_name
-        if self.file_versions[0] == 1:
+        try:
             matFiles = scipy.io.loadmat(self.data_path, squeeze_me=True, struct_as_record=False)
             xs = matFiles['sources']
             ys = matFiles['measurements']
@@ -135,7 +137,9 @@ class HeartEpisodicDataset(Dataset):
             self.label = torch.from_numpy(label)
             self.xs = torch.from_numpy(xs).float()
             self.ys = torch.from_numpy(ys).float()
-        elif self.file_versions[0] == 2:
+
+            self.file_versions = 1
+        except NotImplementedError:
             matFiles = h5py.File(self.data_path, 'r')
             xs = matFiles['sources']
             ys = matFiles['measurements']
@@ -145,8 +149,10 @@ class HeartEpisodicDataset(Dataset):
             self.ys = ys
             self.label = label
             scar = label[1, :].astype(int)
-        else:
-            raise NotImplemented
+
+            self.file_versions = 2
+        except:
+            ValueError('could not read at all...')
 
         unique_scar = np.unique(scar)
         self.scar_idx = {}
@@ -161,7 +167,7 @@ class HeartEpisodicDataset(Dataset):
         return (self.qry_idx.shape[0])
 
     def __getitem__(self, idx):
-        if self.file_versions[0] == 1:
+        if self.file_versions == 1:
             label = self.label[[self.qry_idx[idx]]]
             x = self.xs[[self.qry_idx[idx]], :, :]
             y = self.ys[[self.qry_idx[idx]], :, :]
@@ -171,7 +177,7 @@ class HeartEpisodicDataset(Dataset):
             D_y = self.ys[self.spt_idx[scar], :, :]
             D_label = self.label[self.spt_idx[scar]]
             
-        elif self.file_versions[0] == 2:
+        elif self.file_versions == 2:
             label = self.label[:, [self.qry_idx[idx]]]
             x = self.xs[[self.qry_idx[idx]], :, :]
             y = self.ys[[self.qry_idx[idx]], :, :]
