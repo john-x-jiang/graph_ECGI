@@ -28,7 +28,7 @@
     "data":{
         "data_set": "HeartEpisodicDataLoader",
         "data_dir": "data/",
-        "data_names": ["EC", "DC", "AW"],
+        "data_names": ["heart1", "heart2", "heart3"],
         "signal_type": "egm",
         "num_meshes": [568, 595, 600],
         "seq_len": 101,
