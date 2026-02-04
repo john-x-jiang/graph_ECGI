@@ -893,20 +893,32 @@ class Transition_ODE(nn.Module):
 
         if domain:
             self.combine = nn.Linear(2 * latent_dim, latent_dim)
-            self.layers_dim = [2 * latent_dim] + num_layers * [transition_dim] + [latent_dim]
-        else:
-            self.layers_dim = [latent_dim] + num_layers * [transition_dim] + [latent_dim]
         
-        self.layers, self.acts = [], []
-        for i, (n_in, n_out) in enumerate(zip(self.layers_dim[:-1], self.layers_dim[1:])):
-            self.acts.append(get_act(act_func) if i < num_layers else get_act('tanh'))
-            self.layers.append(nn.Linear(n_in, n_out, device=device))
+        dynamics_network = []
+        if domain:
+            dynamics_network.extend([
+                nn.Linear(2 * latent_dim, transition_dim),
+                get_act(act_func)
+            ])
+        else:
+            dynamics_network.extend([
+                nn.Linear(latent_dim, transition_dim),
+                get_act(act_func)
+            ])
+        
+        for _ in range(num_layers - 1):
+            dynamics_network.extend([
+                nn.Linear(transition_dim, transition_dim),
+                get_act(act_func)
+            ])
+        
+        dynamics_network.extend([nn.Linear(transition_dim, latent_dim), get_act('tanh')])
+        self.dynamics_network = nn.Sequential(*dynamics_network)
         
     def ode_solver(self, t, x):
         if self.domain:
             x = torch.cat([x, self.embedding], dim=2)
-        for a, layer in zip(self.acts, self.layers):
-            x = a(layer(x))
+        x = self.dynamics_network(x)
         return x
     
     def forward(self, T, z_0, z_c=None):
@@ -933,16 +945,22 @@ class Propagation(nn.Module):
         self.step_size = step_size
         self.domain = domain
 
-        self.layers_dim = [latent_dim] + num_layers * [transition_dim] + [latent_dim]
+        dynamics_network = []
+        dynamics_network.extend([
+            nn.Linear(latent_dim, transition_dim),
+            get_act(act_func)
+        ])
 
-        self.layers, self.acts = [], []
-        for i, (n_in, n_out) in enumerate(zip(self.layers_dim[:-1], self.layers_dim[1:])):
-            self.acts.append(get_act(act_func) if i < num_layers else get_act('tanh'))
-            self.layers.append(nn.Linear(n_in, n_out, device=device))
+        for _ in range(num_layers - 1):
+            dynamics_network.extend([
+                nn.Linear(transition_dim, transition_dim),
+                get_act(act_func)
+            ])
+        dynamics_network.extend([nn.Linear(transition_dim, latent_dim), get_act('tanh')])
+        self.dynamics_network = nn.Sequential(*dynamics_network)
         
     def ode_solver(self, t, x):
-        for a, layer in zip(self.acts, self.layers):
-            x = a(layer(x))
+        x = self.dynamics_network(x)
         return x
     
     def forward(self, x, dt, steps=1):
