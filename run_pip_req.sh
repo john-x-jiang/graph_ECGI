@@ -1,31 +1,16 @@
 #!/bin/bash
 
-# Choose any version for environment setup
-# Version 1: using CUDA 11.7
-CUDA=cu117
+# This repo relies on the compatibility of pytorch geometric.
+# Check the installation guide of pytorch geometric here: https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html
+# E.g. using CUDA 12.9
+CUDA=cu129
 
 pip install -r requirements.txt
 
-pip install torch==2.0.1
+pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/${CUDA}
 
-pip install pyg-lib torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-2.0.1+${CUDA}.html
+pip install torch-geometric
 
-
-# Version 2: using CUDA 12.1
-CUDA=cu121
-
-pip install -r requirements.txt
-
-pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cu121
-
-pip install pyg-lib torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-2.2.2+${CUDA}.html
+pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.8.0+${CUDA}.html
 
 
-# Version 3: using CUDA 12.4
-CUDA=cu124
-
-pip install -r requirements.txt
-
-pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/${CUDA}
-
-pip install pyg-lib torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-2.4.0+${CUDA}.html
