@@ -20,6 +20,7 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     total_loss_v = []
     separate_loss_t = {}
     separate_loss_v = {}
+    lrs = []
 
     train_config = dict(hparams.training)
     monitor_mode, monitor_metric = train_config['monitor'].split()
@@ -40,8 +41,8 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
     for epoch in range(epoch_start, train_config['epochs'] + 1):
         ts = time.time()
         # train epoch
-        loss_t_epoch, separate_loss_t_epoch = \
-            train_epoch(model, epoch, loss, optimizer, train_loaders, hparams)
+        loss_t_epoch, separate_loss_t_epoch, last_lr = \
+            train_epoch(model, epoch, loss, optimizer, lr_scheduler, train_loaders, hparams)
         
         # valid epoch
         loss_v_epoch, separate_loss_v_epoch = \
@@ -60,13 +61,15 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             if not separate_loss_v.get(loss_name):
                 separate_loss_v[loss_name] = []
             separate_loss_v[loss_name].append(loss_val)
+        
+        lrs.append(last_lr)
 
-        # Step LR
-        if lr_scheduler is not None:
-            lr_scheduler.step()
-            last_lr = lr_scheduler._last_lr
-        else:
-            last_lr = optimizer.param_groups[0]['lr']
+        # # Step LR
+        # if lr_scheduler is not None:
+        #     lr_scheduler.step()
+        #     last_lr = lr_scheduler._last_lr
+        # else:
+        #     last_lr = optimizer.param_groups[0]['lr']
         
         # Generate the checkpoint for this current epoch
         log = {
@@ -76,6 +79,7 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             'optimizer': optimizer.state_dict(),
             'not_improved_count': not_improved_count,
             'opt_metric_err': metric_err,
+            'cur_learning_rate': lrs,
             
             'train_loss': total_loss_t,
             'valid_loss': total_loss_v,
@@ -131,13 +135,14 @@ def train_driver(model, checkpt, epoch_start, optimizer, lr_scheduler, \
             total_loss_t,
             total_loss_v
         ],
+        'learning_rate': [lrs, lrs]
     }
     for loss_name in train_config['loss_to_plot']:
         losses[loss_name] = [separate_loss_t[loss_name], separate_loss_v[loss_name]]
     save_losses(exp_dir, train_config['epochs'], losses)
 
 
-def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
+def train_epoch(model, epoch, loss, optimizer, lr_scheduler, data_loaders, hparams):
     model.train()
     train_config = dict(hparams.training)
     kl_args = train_config.get('kl_args')
@@ -149,6 +154,8 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
     changable = train_config.get('changable')
     meta_dataset = train_config.get('meta_dataset')
     loss_type = train_config.get('loss_type')
+    grad_clip = train_config.get('grad_clip')
+    clip_decay = train_config.get('clip_decay')
     loss_func = hparams.loss
     total_loss = 0
     separate_losses = {}
@@ -315,15 +322,26 @@ def train_epoch(model, epoch, loss, optimizer, data_loaders, hparams):
                 separate_losses[loss_name] += loss_val.item()
             n_steps += 1
 
+            if grad_clip is not None:
+                clip_value = grad_clip if clip_decay is None else grad_clip / (epoch // 100 + 1)
+                torch.nn.utils.clip_grad_value_(model.parameters(), clip_value)
+
             optimizer.step()
+            if lr_scheduler is not None:
+                lr_scheduler.step()
             logs = 'Training epoch {}, step {}, Average loss for epoch: {:05.5f}'.format(epoch, n_steps, total_loss / n_steps)
             util.inline_print(logs)
 
     total_loss /= n_steps
     for loss_name, loss_val in separate_losses.items():
         separate_losses[loss_name] /= n_steps
+    
+    if lr_scheduler is not None:
+        last_lr = lr_scheduler.get_last_lr()
+    else:
+        last_lr = optimizer.param_groups[0]['lr']
 
-    return total_loss, separate_losses
+    return total_loss, separate_losses, last_lr
 
 
 def valid_epoch(model, epoch, loss, data_loaders, hparams):

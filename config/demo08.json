@@ -29,13 +29,14 @@
     "data":{
         "data_set": "HeartDataLoader",
         "data_dir": "data/",
-        "data_names": ["heart1", "heart1_real"],
+        "data_names": ["EC", "EC_real"],
         "signal_type": "egm",
-        "num_meshes": [568, 568],
         "seq_len": 101,
+        "heart_coarsen": 4,
+        "torso_coarsen": 3,
         "graph_method": "bipartite",
         "num_workers": 1,
-        "eval_names": ["heart1_real"],
+        "eval_names": ["EC_real"],
         "eval_tags": [
             "test"
         ]

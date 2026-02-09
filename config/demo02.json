@@ -12,10 +12,11 @@
     "data":{
         "data_set": "HeartDataLoader",
         "data_dir": "data/",
-        "data_names": ["heart1"],
+        "data_names": ["EC"],
         "signal_type": "egm",
-        "num_meshes": [568],
         "seq_len": 101,
+        "heart_coarsen": 4,
+        "torso_coarsen": 3,
         "graph_method": "bipartite",
         "num_workers": 1,
         "eval_tags": [

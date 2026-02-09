@@ -3,6 +3,7 @@ import os
 import os.path as osp
 import numpy as np
 from shutil import copy2
+import random
 
 import torch
 from torch import optim
@@ -11,7 +12,7 @@ import model.model as model_arch
 import model.loss as model_loss
 import model.metric as model_metric
 from trainer import training, evaluating
-from utils import Params
+from utils import Params, CosineAnnealingWarmRestartsWithDecayAndLinearWarmup
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -43,7 +44,6 @@ def data_loading(hparams, stage=1):
     num_workers = data_config['num_workers']
     data_names = data_config['data_names']
     signal_type = data_config['signal_type']
-    num_meshes = data_config['num_meshes']
     seq_len = data_config['seq_len']
     k_shot = data_config.get('k_shot')
 
@@ -60,7 +60,7 @@ def data_loading(hparams, stage=1):
             data_names = eval_names
         eval_loaders, pred_loaders = {}, {}
     
-    for data_name, num_mesh in zip(data_names, num_meshes):
+    for data_name in data_names:
         if stage == 1:
             batch_size = hparams.batch_size
             train_loader = getattr(data_loaders, data_set)(
@@ -71,7 +71,6 @@ def data_loading(hparams, stage=1):
                 num_workers=num_workers,
                 data_name=data_name,
                 signal_type=signal_type,
-                num_mesh=num_mesh,
                 seq_len=seq_len,
                 k_shot=k_shot
             )
@@ -84,7 +83,6 @@ def data_loading(hparams, stage=1):
                 num_workers=num_workers,
                 data_name=data_name,
                 signal_type=signal_type,
-                num_mesh=num_mesh,
                 seq_len=seq_len,
                 k_shot=k_shot
             )
@@ -104,7 +102,6 @@ def data_loading(hparams, stage=1):
                     num_workers=num_workers,
                     data_name=data_name,
                     signal_type=signal_type,
-                    num_mesh=num_mesh,
                     seq_len=seq_len,
                     k_shot=k_shot
                 )
@@ -126,7 +123,6 @@ def data_loading(hparams, stage=1):
                     num_workers=num_workers,
                     data_name=data_name,
                     signal_type=signal_type,
-                    num_mesh=num_mesh,
                     seq_len=seq_len,
                     k_shot=k_shot
                 )
@@ -139,7 +135,6 @@ def data_loading(hparams, stage=1):
                     num_workers=num_workers,
                     data_name=data_name,
                     signal_type=signal_type,
-                    num_mesh=num_mesh,
                     seq_len=seq_len,
                     k_shot=k_shot
                 )
@@ -173,8 +168,10 @@ def train(hparams, checkpt, train_loaders, valid_loaders, exp_dir):
     batch_size = hparams.batch_size
     load_torso = hparams.load_torso
     load_physics = hparams.load_physics
+    heart_coarsen = hparams.data['heart_coarsen']
+    torso_coarsen = hparams.data['torso_coarsen']
     for data_name in hparams.data['data_names']:
-        model.setup(data_name, data_dir, batch_size, load_torso, load_physics, graph_method)
+        model.setup(data_name, data_dir, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen)
 
     model.to(device)
     epoch_start = 1
@@ -199,7 +196,10 @@ def train(hparams, checkpt, train_loaders, valid_loaders, exp_dir):
         lr_scheduler = None
     else:
         lr_scheduler_info = dict(hparams.lr_scheduler)
-        lr_scheduler = getattr(optim.lr_scheduler, lr_scheduler_info['type'])(optimizer, **lr_scheduler_info['args'])
+        if hparams.lr_scheduler['type'] == 'CosineAnnealingWarmRestartsWithDecayAndLinearWarmup':
+            lr_scheduler = CosineAnnealingWarmRestartsWithDecayAndLinearWarmup(optimizer, **lr_scheduler_info['args'])
+        else:
+            lr_scheduler = getattr(optim.lr_scheduler, lr_scheduler_info['type'])(optimizer, **lr_scheduler_info['args'])
     
     # count number of parameters in the mdoe
     num_params = get_network_paramcount(model)
@@ -221,8 +221,10 @@ def evaluate(hparams, eval_loaders, exp_dir, data_tags):
     batch_size = hparams.batch_size
     load_torso = hparams.load_torso
     load_physics = hparams.load_physics
+    heart_coarsen = hparams.data['heart_coarsen']
+    torso_coarsen = hparams.data['torso_coarsen']
     for data_name in hparams.data['data_names']:
-        model.setup(data_name, data_dir, batch_size, load_torso, load_physics, graph_method)
+        model.setup(data_name, data_dir, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen)
 
     model.to(device)
     checkpt = torch.load(exp_dir + '/' + hparams.best_model, map_location=device)
@@ -246,8 +248,10 @@ def prediction(hparams, eval_loaders, pred_loaders, exp_dir, data_tags):
     batch_size = hparams.batch_size
     load_torso = hparams.load_torso
     load_physics = hparams.load_physics
+    heart_coarsen = hparams.data['heart_coarsen']
+    torso_coarsen = hparams.data['torso_coarsen']
     for data_name in hparams.data['data_names']:
-        model.setup(data_name, data_dir, batch_size, load_torso, load_physics, graph_method)
+        model.setup(data_name, data_dir, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen)
 
     model.to(device)
     checkpt = torch.load(exp_dir + '/' + hparams.best_model, map_location=device)
@@ -295,33 +299,36 @@ def make_graph(hparams):
     data_dir = data_config['data_dir']
     data_names = data_config['data_names']
     signal_type = data_config['signal_type']
-    num_meshes = data_config['num_meshes']
     graph_method = data_config['graph_method']
     seq_len = data_config['seq_len']
+    heart_coarsen = data_config['heart_coarsen']
+    torso_coarsen = data_config['torso_coarsen']
 
-    for data_name, num_mesh in zip(data_names, num_meshes):
+    for data_name in data_names:
         print(data_name)
         root_dir = os.path.join(data_dir, 'signal/{}'.format(data_name))
         structure_name = data_name.split('_')[0]
-        g = mesh2graph.GraphPyramid(data_name, structure_name, num_mesh, seq_len, graph_method)
+        g = mesh2graph.GraphPyramid(data_name, structure_name, seq_len, graph_method, heart_coarsen, torso_coarsen)
         g.make_graph()
 
 
 if __name__ == '__main__':
     args = parse_args()
-
-    # fix random seeds for reproducibility
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    np.random.seed(args.seed)
-
     # filename of the params
     fname_config = args.config + '.json'
     # read the params file
     json_path = osp.join(osp.dirname(osp.realpath('__file__')), "config", fname_config)
     hparams = Params(json_path)
+
+    # fix random seeds for reproducibility
+    seed = hparams.seed if hparams.seed is not None else args.seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     torch.cuda.set_device(hparams.device)
 
     # check for a checkpoint passed in to resume from

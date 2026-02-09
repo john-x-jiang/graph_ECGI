@@ -28,7 +28,7 @@ class GraphPyramid():
         K: K in KNN for defining edge connectivity in the graph
     """
 
-    def __init__(self, heart='EC', structure='EC', num_mesh=1230, seq_len=201, graph_method='bipartite'):
+    def __init__(self, heart='EC', structure='EC', seq_len=201, graph_method='bipartite', heart_coarsen=4, torso_coarsen=3):
         """
         """
         self.path_in = osp.join(osp.dirname(osp.realpath('__file__')), 'data', 'signal', heart)
@@ -37,8 +37,9 @@ class GraphPyramid():
         self.transform = T.Cartesian(cat=False)
         self.filename = osp.join(self.path_in, heart)
         self.heart_name = structure
-        self.num_mesh = num_mesh
         self.seq_len = seq_len
+        self.heart_coarsen = heart_coarsen
+        self.torso_coarsen = torso_coarsen
 
     def normalized_cut_2d(self, edge_index, pos):
         """ calculate the normalized cut 2d 
@@ -67,7 +68,7 @@ class GraphPyramid():
             for t_P in t_Ps:
                 pickle.dump(t_P, f)
 
-            if self.method == 'bipartite':
+            if self.method == 'bipartite' or self.method == '12lead_sparse' or self.method == '12lead_1':
                 pickle.dump(Hs, f)
                 pickle.dump(Ps, f)
             else:
@@ -195,21 +196,10 @@ class GraphPyramid():
         # self.save_connection(h_g, name='h0', face=face)  # plot the graph
         h_gs.append(h_g)
         
-        h_P1, h_g1 = self.get_embeddings(h_g, self.heart_name, 1)
-        h_gs.append(h_g1)
-        h_Ps.append(h_P1)
-
-        h_P2, h_g2 = self.get_embeddings(h_g1, self.heart_name, 2)
-        h_gs.append(h_g2)
-        h_Ps.append(h_P2)
-        
-        h_P3, h_g3 = self.get_embeddings(h_g2, self.heart_name, 3)
-        h_gs.append(h_g3)
-        h_Ps.append(h_P3)
-        
-        h_P4, h_g4 = self.get_embeddings(h_g3, self.heart_name, 4)
-        h_gs.append(h_g4)
-        h_Ps.append(h_P4)
+        for i in range(1, self.heart_coarsen + 1):
+            h_P, h_g = self.get_embeddings(h_g, self.heart_name, i)
+            h_gs.append(h_g)
+            h_Ps.append(h_P)
 
         t_gs, t_Ps = [], []
         matFiles = scipy.io.loadmat(osp.join(self.path_structure, '{}_t0.mat'.format(self.heart_name)), squeeze_me=True, struct_as_record=False)
@@ -225,20 +215,15 @@ class GraphPyramid():
         # self.save_connection(t_g, name='t0')  # plot the graph
         t_gs.append(t_g)
 
-        t_P1, t_g1 = self.get_embeddings(t_g, self.heart_name, 1, is_heart=False)
-        t_gs.append(t_g1)
-        t_Ps.append(t_P1)
-        
-        t_P2, t_g2 = self.get_embeddings(t_g1, self.heart_name, 2, is_heart=False)
-        t_gs.append(t_g2)
-        t_Ps.append(t_P2)
-        
-        t_P3, t_g3 = self.get_embeddings(t_g2, self.heart_name, 3, is_heart=False)
-        t_gs.append(t_g3)
-        t_Ps.append(t_P3)
+        for i in range(1, self.torso_coarsen + 1):
+            t_P, t_g = self.get_embeddings(t_g, self.heart_name, i, is_heart=False)
+            t_gs.append(t_g)
+            t_Ps.append(t_P)
 
         if self.method == 'bipartite':
-            H_inv, P = self.bipartite_graph(h_g4, t_g3)
+            h_g = h_gs[-1]
+            t_g = t_gs[-1]
+            H_inv, P = self.bipartite_graph(h_g, t_g)
             self.save_graph(h_gs, h_Ps, t_gs, t_Ps, H_inv, P)
         else:
             raise NotImplementedError

@@ -41,7 +41,7 @@ class EuclideanModel(BaseModel):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
     
-    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen):
         pass
     
     def encode(self, x):
@@ -99,8 +99,8 @@ class ST_GCNN_TorsoHeart(BaseModel):
         self.H_inv = dict()
         self.P = dict()
     
-    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
-        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen)
         self.H_inv[heart_name] = params["H_inv"]
         self.P[heart_name] = params["P"]
 
@@ -152,8 +152,8 @@ class ST_GCNN_HeartOnly(BaseModel):
 
         # TODO: add necessary nn modules for latent modeling below
     
-    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
-        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen)
         self.encoder.setup(heart_name, params)
         self.decoder.setup(heart_name, params)
     
@@ -213,8 +213,8 @@ class MetaDynamics(BaseModel):
         # decoder
         self.decoder = SpatialDecoder(num_channel, latent_dim)
 
-    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
-        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)        
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen)        
         self.domain.setup(heart_name, params)
         self.initial.setup(heart_name, params)
         self.decoder.setup(heart_name, params)
@@ -357,8 +357,8 @@ class MetaDynamics_MaskIn(BaseModel):
         self.bg3 = dict()
         self.bg4 = dict()
 
-    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
-        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen)
         self.bg[heart_name] = params["bg"]
         self.bg1[heart_name] = params["bg1"]
         self.bg2[heart_name] = params["bg2"]
@@ -488,8 +488,8 @@ class HybridSSM(BaseModel):
         self.H = dict()
         self.L = dict()
     
-    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method):
-        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method)
+    def setup(self, heart_name, data_path, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen):
+        params = get_params(data_path, heart_name, batch_size, load_torso, load_physics, graph_method, heart_coarsen, torso_coarsen)
         self.H_inv[heart_name] = params["H_inv"]
         self.P[heart_name] = params["P"]
         self.H[heart_name] = params["H"]
@@ -522,6 +522,7 @@ class HybridSSM(BaseModel):
     def time_modeling(self, x, heart_name):
         N, V, C, T = x.shape
         edge_index, edge_attr = self.decoder.bg4[heart_name].edge_index, self.decoder.bg4[heart_name].edge_attr
+        edge_index, edge_attr = expand(N, V, 1, edge_index, edge_attr)
 
         x = x.permute(3, 0, 1, 2).contiguous()
         last_h = x[0]

@@ -7,23 +7,23 @@ from torch_geometric.loader import DataLoader
 
 class HeartDataLoader(DataLoader):
     def __init__(self, batch_size, data_dir='data/', split='train', shuffle=True, collate_fn=None,
-                 num_workers=1, data_name=None, signal_type=None, num_mesh=None, seq_len=None, k_shot=None):
+                 num_workers=1, data_name=None, signal_type=None, seq_len=None, k_shot=None):
         # assert split in ['train', 'valid', 'test', 'test00', 'test01','test10', 'test11']
 
-        self.dataset = HeartGraphDataset(data_dir, data_name, signal_type, num_mesh, seq_len, split)
+        self.dataset = HeartGraphDataset(data_dir, data_name, signal_type, seq_len, split)
 
-        super().__init__(self.dataset, batch_size, shuffle, drop_last=True, num_workers=num_workers)
+        super().__init__(self.dataset, batch_size, shuffle, drop_last=False, num_workers=num_workers)
 
 
 class HeartEpisodicDataLoader(DataLoader):
     def __init__(self, batch_size, data_dir='data/', split='train', shuffle=True, collate_fn=None,
-                 num_workers=1, data_name=None, signal_type=None, num_mesh=None, seq_len=None, k_shot=None):
-        self.dataset = HeartEpisodicDataset(data_dir, data_name, signal_type, num_mesh, seq_len, split, shuffle, k_shot=k_shot)
+                 num_workers=1, data_name=None, signal_type=None, seq_len=None, k_shot=None):
+        self.dataset = HeartEpisodicDataset(data_dir, data_name, signal_type, seq_len, split, shuffle, k_shot=k_shot)
 
         self.init_kwargs = {
             'batch_size': batch_size,
             'shuffle': shuffle,
-            'drop_last': True,
+            'drop_last': False,
             'num_workers': num_workers
         }
         super().__init__(dataset=self.dataset, **self.init_kwargs)

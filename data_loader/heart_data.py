@@ -31,13 +31,12 @@ class HeartGraphDataset(Dataset):
                  root,
                  data_name,
                  signal_type='egm',
-                 num_mesh=None,
                  seq_len=None,
                  split='train'):
         self.root = osp.expanduser(osp.normpath(root))
         self.raw_dir = osp.join(self.root, 'signal/{}/'.format(data_name))
 
-        filename = '{}_{}_{}.mat'.format(split, signal_type, num_mesh)
+        filename = '{}_{}.mat'.format(split, signal_type)
         self.data_path = osp.join(self.raw_dir, filename)
 
         self.heart_name = data_name
@@ -108,7 +107,6 @@ class HeartEpisodicDataset(Dataset):
                  root,
                  data_name,
                  signal_type='egm',
-                 num_mesh=None,
                  seq_len=None,
                  split='train',
                  shuffle=True,
@@ -119,7 +117,7 @@ class HeartEpisodicDataset(Dataset):
         self.split_name = split
         self.shuffle = shuffle
 
-        filename = '{}_{}_{}.mat'.format(split, signal_type, num_mesh)
+        filename = '{}_{}_{}.mat'.format(split, signal_type)
         self.data_path = osp.join(self.raw_dir, filename)
         
         self.heart_name = data_name
